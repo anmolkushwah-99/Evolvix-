@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "613277586109",
+    "project_id": "evolvix-5f20b",
+    "storage_bucket": "evolvix-5f20b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:613277586109:android:35f4b59655ae3476bc5dd4",
+        "android_client_info": {
+          "package_name": "com.example.evolvix"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCC9qOZhrW1JtxDdMRWCbawKSzI-8v4TJ0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

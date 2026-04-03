@@ -16,6 +16,7 @@ import 'screens/profile/edit_profile_screen.dart';
 import 'screens/performance/performance_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/leaderboard/leaderboard_screen.dart';
+import 'screens/notifications/notifications_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -61,6 +62,7 @@ class EvolvixApp extends StatelessWidget {
         '/performance': (context) => const PerformanceScreen(),
         '/settings': (context) => const SettingsScreen(),
         '/leaderboard': (context) => const LeaderboardScreen(),
+        '/notifications': (context) => const NotificationsScreen(),
         '/task_details': (context) => const Scaffold(body: Center(child: Text('Task Details Screen'))), // Placeholder
       },
     );

@@ -67,15 +67,19 @@ class ProfileScreen extends StatelessWidget {
             onPressed: () => Navigator.pop(context),
           ),
           const Text('Evolvix', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFF59168B).withOpacity(0.3),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
+          InkWell(
+            onTap: () => Navigator.pushNamed(context, '/notifications'),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFF59168B).withOpacity(0.3),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+              ),
+              child: const Icon(Icons.notifications_none, color: Color(0xFFDAB2FF)),
             ),
-            child: const Icon(Icons.notifications_none, color: Color(0xFFDAB2FF)),
           ),
         ],
       ),

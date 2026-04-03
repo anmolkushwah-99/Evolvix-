@@ -107,7 +107,10 @@ class DashboardScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.notifications_none, color: Color(0xFFDAB2FF)),
+              IconButton(
+                onPressed: () => Navigator.pushNamed(context, '/notifications'),
+                icon: const Icon(Icons.notifications_none, color: Color(0xFFDAB2FF)),
+              ),
             ],
           ),
           const SizedBox(height: 20),

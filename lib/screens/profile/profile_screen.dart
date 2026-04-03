@@ -47,7 +47,7 @@ class ProfileScreen extends StatelessWidget {
 
   Widget _buildHeader(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -62,11 +62,11 @@ class ProfileScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left, color: Color(0xFFDAB2FF)),
-            onPressed: () => Navigator.pop(context),
+          const Expanded(
+            child: Center(
+              child: Text('Evolvix', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+            ),
           ),
-          const Text('Evolvix', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
           InkWell(
             onTap: () => Navigator.pushNamed(context, '/notifications'),
             borderRadius: BorderRadius.circular(12),

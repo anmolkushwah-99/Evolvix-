@@ -136,24 +136,28 @@ class _RewardHistoryScreenState extends State<RewardHistoryScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          const SizedBox(height: 16),
-          _buildSummaryCards(),
-          const SizedBox(height: 24),
-          _buildFilterRow(),
-          const SizedBox(height: 16),
-          Expanded(
-            child: ListView.builder(
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            const SizedBox(height: 16),
+            _buildSummaryCards(),
+            const SizedBox(height: 24),
+            _buildFilterRow(),
+            const SizedBox(height: 16),
+            ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 20),
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
               itemCount: filteredList.length,
               itemBuilder: (context, index) {
                 return _buildTransactionCard(filteredList[index]);
               },
             ),
-          ),
-          _buildFooter(),
-        ],
+            const SizedBox(height: 24),
+            _buildNetBalanceSection(),
+            const SizedBox(height: 40),
+          ],
+        ),
       ),
     );
   }
@@ -336,15 +340,14 @@ class _RewardHistoryScreenState extends State<RewardHistoryScreen> {
     );
   }
 
-  Widget _buildFooter() {
+  Widget _buildNetBalanceSection() {
     return Container(
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: const Color(0xFF1A0F2E),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, -5)),
-        ],
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
       child: Column(
         children: [
@@ -354,55 +357,56 @@ class _RewardHistoryScreenState extends State<RewardHistoryScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Net Balance Change', style: TextStyle(color: Colors.white, fontSize: 14)),
-                  const SizedBox(height: 4),
-                  const Text('-180 XP', style: TextStyle(color: Colors.red, fontSize: 24, fontWeight: FontWeight.bold)),
+                  const Text('Net Balance Change', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 8),
+                  const Text('-180 XP', style: TextStyle(color: Colors.red, fontSize: 32, fontWeight: FontWeight.bold)),
                 ],
               ),
               Container(
-                padding: const EdgeInsets.all(12),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF9810FA),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF9810FA).withOpacity(0.2),
                   shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF9810FA).withOpacity(0.3)),
                 ),
-                child: const Icon(Icons.bolt, color: Colors.white, size: 24),
+                child: const Icon(Icons.bolt, color: Color(0xFFC27AFF), size: 28),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
           Row(
             children: [
-              Text('Spent', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
+              Text('Spent', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12)),
               const Spacer(),
-              Text('Earned', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10)),
+              Text('Earned', style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 12)),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
             child: LinearProgressIndicator(
               value: 0.45, // Earned ratio
-              minHeight: 8,
-              backgroundColor: Colors.red.withOpacity(0.3),
+              minHeight: 12,
+              backgroundColor: Colors.red.withOpacity(0.2),
               valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 32),
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.blue.withOpacity(0.1),
+              color: const Color(0xFF2B7FFF).withOpacity(0.1),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.blue.withOpacity(0.2)),
+              border: Border.all(color: const Color(0xFF2B7FFF).withOpacity(0.2)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.lightbulb_outline, color: Colors.blue, size: 20),
-                const SizedBox(width: 12),
+                const Icon(Icons.lightbulb_outline, color: Color(0xFF51A2FF), size: 24),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Text(
                     'Track Your Progress: Review your history to identify your most productive habits and optimize your XP earning strategy!',
-                    style: TextStyle(color: Colors.blue.withOpacity(0.8), fontSize: 12),
+                    style: TextStyle(color: const Color(0xFFDAB2FF).withOpacity(0.8), fontSize: 13, height: 1.5),
                   ),
                 ),
               ],

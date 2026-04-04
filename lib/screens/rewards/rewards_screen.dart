@@ -76,25 +76,9 @@ class RewardsScreen extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Row(
+          const Row(
             children: [
-              IconButton(
-                onPressed: () => Navigator.pop(context),
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-                icon: Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF59168B).withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                  ),
-                  child: const Icon(Icons.chevron_left, color: Color(0xFFDAB2FF)),
-                ),
-              ),
-              const SizedBox(width: 16),
-              const Text('Rewards Store', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
+              Text('Rewards Store', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 16),

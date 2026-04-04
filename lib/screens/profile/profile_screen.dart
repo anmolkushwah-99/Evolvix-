@@ -62,11 +62,7 @@ class ProfileScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Expanded(
-            child: Center(
-              child: Text('Evolvix', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-            ),
-          ),
+          const Text('Evolvix', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
           InkWell(
             onTap: () => Navigator.pushNamed(context, '/notifications'),
             borderRadius: BorderRadius.circular(12),

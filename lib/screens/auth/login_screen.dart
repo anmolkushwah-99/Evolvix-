@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -29,7 +30,10 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _isGoogleLoading = true);
     try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      final GoogleSignInAccount? googleUser = await GoogleSignIn(
+        serverClientId: '613277586109-emt42fc6ttdf605d20duqmj9janahioe.apps.googleusercontent.com',
+      ).signIn();
+      
       if (googleUser == null) {
         setState(() => _isGoogleLoading = false);
         return;
@@ -41,7 +45,24 @@ class _LoginScreenState extends State<LoginScreen> {
         idToken: googleAuth.idToken,
       );
 
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      final User? user = userCredential.user;
+
+      if (user != null) {
+        // Save user profile to Firestore if it doesn't exist
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        
+        if (!userDoc.exists) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'uid': user.uid,
+            'name': user.displayName ?? 'New Explorer',
+            'email': user.email,
+            'createdAt': FieldValue.serverTimestamp(),
+            'level': 1,
+            'xp': 0,
+          });
+        }
+      }
       
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/dashboard');
@@ -52,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
           SnackBar(
             content: Text('Google Error: [${e.code}] ${e.message}'),
             backgroundColor: Colors.redAccent,
-            duration: const Duration(seconds: 5),
+            duration: const Duration(seconds: 8),
           ),
         );
       }

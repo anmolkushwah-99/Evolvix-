@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -36,7 +37,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _isGoogleLoading = true);
     try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      final GoogleSignInAccount? googleUser = await GoogleSignIn(
+        serverClientId: '613277586109-emt42fc6ttdf605d20duqmj9janahioe.apps.googleusercontent.com',
+      ).signIn();
+      
       if (googleUser == null) {
         setState(() => _isGoogleLoading = false);
         return;
@@ -48,7 +52,24 @@ class _SignUpScreenState extends State<SignUpScreen> {
         idToken: googleAuth.idToken,
       );
 
-      await FirebaseAuth.instance.signInWithCredential(credential);
+      final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      final User? user = userCredential.user;
+
+      if (user != null) {
+        // Save user profile to Firestore if it doesn't exist
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        
+        if (!userDoc.exists) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'uid': user.uid,
+            'name': user.displayName ?? 'New Explorer',
+            'email': user.email,
+            'createdAt': FieldValue.serverTimestamp(),
+            'level': 1,
+            'xp': 0,
+          });
+        }
+      }
       
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/dashboard');
@@ -99,8 +120,21 @@ class _SignUpScreenState extends State<SignUpScreen> {
         password: _passwordController.text.trim(),
       );
       
-      // Update display name
-      await userCredential.user?.updateDisplayName(_nameController.text.trim());
+      final User? user = userCredential.user;
+      if (user != null) {
+        await user.updateDisplayName(_nameController.text.trim());
+        
+        // Save user profile to Firestore
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'uid': user.uid,
+          'name': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'phone': _phoneController.text.trim(),
+          'createdAt': FieldValue.serverTimestamp(),
+          'level': 1,
+          'xp': 0,
+        });
+      }
       
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/dashboard');

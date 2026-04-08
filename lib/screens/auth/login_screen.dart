@@ -30,9 +30,11 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _signInWithGoogle() async {
     setState(() => _isGoogleLoading = true);
     try {
-      final GoogleSignInAccount? googleUser = await GoogleSignIn(
+      final googleSignIn = GoogleSignIn(
         serverClientId: '613277586109-emt42fc6ttdf605d20duqmj9janahioe.apps.googleusercontent.com',
-      ).signIn();
+      );
+      
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
       
       if (googleUser == null) {
         setState(() => _isGoogleLoading = false);
@@ -45,25 +47,33 @@ class _LoginScreenState extends State<LoginScreen> {
         idToken: googleAuth.idToken,
       );
 
+      // Trigger the standard signInWithCredential flow
       final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
       final User? user = userCredential.user;
 
       if (user != null) {
-        // Save user profile to Firestore if it doesn't exist
+        // After a successful credential sign-in, check if this user has a document in the users Firestore collection
         final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
         
         if (!userDoc.exists) {
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'uid': user.uid,
-            'name': user.displayName ?? 'New Explorer',
-            'email': user.email,
-            'createdAt': FieldValue.serverTimestamp(),
-            'level': 1,
-            'xp': 0,
-          });
+          // The Rejection Logic: If the Firestore document does not exist
+          // sign them back out using both FirebaseAuth and GoogleSignIn
+          await FirebaseAuth.instance.signOut();
+          await googleSignIn.signOut();
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Account not found. Please go to the Sign Up page to create an account.'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+          return;
         }
       }
       
+      // The Success Logic: If the document does exist, route them to the Home screen as normal
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/dashboard');
       }

@@ -54,11 +54,14 @@ class EvolvixApp extends StatelessWidget {
         '/signup': (context) => const SignUpScreen(),
         '/character_creation': (context) => const CharacterCreationScreen(),
         '/dashboard': (context) => const DashboardScreen(),
-        '/home': (context) => const DashboardScreen(), // Added /home alias
+        '/home': (context) => const DashboardScreen(),
         '/tasks': (context) => const TasksScreen(),
         '/create_task': (context) => const CreateTaskScreen(),
         '/study': (context) => const StudyScreen(),
-        '/study-room': (context) => const StudyRoomScreen(),
+        '/study-room': (context) {
+          final roomId = ModalRoute.of(context)?.settings.arguments as String? ?? 'room_1';
+          return ActiveStudyRoomScreen(roomId: roomId);
+        },
         '/rewards': (context) => const RewardsScreen(),
         '/profile': (context) => const ProfileScreen(),
         '/edit-profile': (context) => const EditProfileScreen(),

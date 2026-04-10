@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/glass_container.dart';
 import '../../widgets/bottom_nav_bar.dart';
@@ -33,13 +34,11 @@ class StudyScreen extends StatelessWidget {
                         style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500),
                       ),
                       const SizedBox(height: 12),
-                      _buildOnlineFriends(),
+                      _buildOnlineFriendsStream(),
                       const SizedBox(height: 24),
                       _buildCreateRoomButton(context),
                       const SizedBox(height: 24),
-                      _buildActiveRoomsHeader(),
-                      const SizedBox(height: 16),
-                      _buildActiveRoomsList(context),
+                      _buildActiveRoomsSection(context),
                     ],
                   ),
                 ),
@@ -60,11 +59,11 @@ class StudyScreen extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF59168B).withValues(alpha: 0.4),
-            const Color(0xFF312C85).withValues(alpha: 0.4),
+            const Color(0xFF59168B).withAlpha(102),
+            const Color(0xFF312C85).withAlpha(102),
           ],
         ),
-        border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+        border: Border(bottom: BorderSide(color: Colors.white.withAlpha(26))),
       ),
       child: Column(
         children: [
@@ -81,11 +80,11 @@ class StudyScreen extends StatelessWidget {
               hintStyle: const TextStyle(color: Color(0xFFAD46FF)),
               prefixIcon: const Icon(Icons.search, color: Color(0xFFC27AFF)),
               filled: true,
-              fillColor: const Color(0xFF3C0366).withValues(alpha: 0.3),
+              fillColor: const Color(0xFF3C0366).withAlpha(77),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                borderSide: BorderSide(color: Colors.white.withAlpha(26)),
               ),
             ),
           ),
@@ -94,57 +93,67 @@ class StudyScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildOnlineFriends() {
-    final friends = [
-      {'name': 'Alex', 'emoji': '👨', 'status': Colors.green},
-      {'name': 'Sarah', 'emoji': '👩', 'status': Colors.green},
-      {'name': 'Mike', 'emoji': '👨‍💼', 'status': Colors.orange},
-      {'name': 'Emma', 'emoji': '👩‍🎓', 'status': Colors.green},
-    ];
+  Widget _buildOnlineFriendsStream() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(height: 100, child: Center(child: CircularProgressIndicator(color: AppColors.primary)));
+        }
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const SizedBox(height: 100, child: Center(child: Text('No friends found', style: TextStyle(color: Color(0xFFDAB2FF)))));
+        }
 
-    return SizedBox(
-      height: 100,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: friends.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 12),
-        itemBuilder: (context, index) {
-          final friend = friends[index];
-          return Column(
-            children: [
-              Stack(
+        final users = snapshot.data!.docs;
+
+        return SizedBox(
+          height: 100,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: users.length,
+            separatorBuilder: (context, index) => const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final user = users[index].data() as Map<String, dynamic>;
+              final name = user['username'] ?? user['name'] ?? 'Alex';
+              final isOnline = user['isOnline'] ?? false;
+              
+              return Column(
                 children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(colors: [Color(0xFF9810FA), Color(0xFF4F39F6)]),
-                      shape: BoxShape.circle,
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(friend['emoji'] as String, style: const TextStyle(fontSize: 24)),
-                  ),
-                  Positioned(
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      width: 16,
-                      height: 16,
-                      decoration: BoxDecoration(
-                        color: friend['status'] as Color,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: const Color(0xFF1A0F2E), width: 2),
+                  Stack(
+                    children: [
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(colors: [Color(0xFF9810FA), Color(0xFF4F39F6)]),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: const Text('👤', style: TextStyle(fontSize: 24)),
                       ),
-                    ),
+                      Positioned(
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          width: 16,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: isOnline ? Colors.green : Colors.grey,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFF1A0F2E), width: 2),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 8),
+                  Text(name, style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 14)),
                 ],
-              ),
-              const SizedBox(height: 8),
-              Text(friend['name'] as String, style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 14)),
-            ],
-          );
-        },
-      ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -174,25 +183,49 @@ class StudyScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildActiveRoomsHeader() {
-    return const Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text('Active Study Rooms', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500)),
-        Text('3 rooms', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
-      ],
-    );
-  }
+  Widget _buildActiveRoomsSection(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('studyRooms').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+        }
+        
+        final roomsCount = snapshot.hasData ? snapshot.data!.docs.length : 0;
 
-  Widget _buildActiveRoomsList(BuildContext context) {
-    return Column(
-      children: [
-        _buildRoomCard(context, 'Math Study Room', 'Calculus', '3/5', '25 min', 'Alex'),
-        const SizedBox(height: 12),
-        _buildRoomCard(context, 'React Bootcamp', 'Web Development', '4/6', '50 min', 'Sarah'),
-        const SizedBox(height: 12),
-        _buildRoomCard(context, 'Physics Problems', 'Mechanics', '2/4', '45 min', 'Mike'),
-      ],
+        return Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Active Study Rooms', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500)),
+                Text('$roomsCount rooms', style: const TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty)
+              const Center(child: Text('No active rooms found', style: TextStyle(color: Color(0xFFDAB2FF))))
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: snapshot.data!.docs.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final room = snapshot.data!.docs[index].data() as Map<String, dynamic>;
+                  return _buildRoomCard(
+                    context,
+                    room['roomName'] ?? 'Study Room',
+                    room['subject'] ?? 'General',
+                    '${room['currentParticipants'] ?? 0}/${room['maxParticipants'] ?? 5}',
+                    '${room['duration'] ?? 25} min',
+                    room['hostName'] ?? 'Unknown',
+                  );
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 
@@ -255,7 +288,7 @@ class StudyScreen extends StatelessWidget {
           const SizedBox(height: 8),
           LinearProgressIndicator(
             value: 0.6,
-            backgroundColor: const Color(0xFF3C0366).withValues(alpha: 0.5),
+            backgroundColor: const Color(0xFF3C0366).withAlpha(128),
             color: Colors.orange,
             minHeight: 6,
             borderRadius: BorderRadius.circular(3),

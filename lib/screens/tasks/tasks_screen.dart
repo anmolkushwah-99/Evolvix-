@@ -68,8 +68,10 @@ class _TasksScreenState extends State<TasksScreen> {
         child: SafeArea(
           child: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
+                .collection('users')
+                .doc(user?.uid)
                 .collection('tasks')
-                .where('userId', isEqualTo: user?.uid)
+                .orderBy('createdAt', descending: true)
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
@@ -313,6 +315,8 @@ class _TasksScreenState extends State<TasksScreen> {
         break;
     }
 
+    final user = FirebaseAuth.instance.currentUser;
+
     return GlassContainer(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -373,6 +377,8 @@ class _TasksScreenState extends State<TasksScreen> {
                 child: ElevatedButton(
                   onPressed: () {
                     FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user?.uid)
                         .collection('tasks')
                         .doc(task.id)
                         .update({'status': 'In Progress'});

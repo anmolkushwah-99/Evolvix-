@@ -45,3 +45,22 @@ Follow these steps to run the project on your system:
    ```bash
    flutter run
    ```
+
+---
+
+## 📸 Screenshots
+
+### Character Creation
+![Character](assets/character.png)
+
+### Sign up
+![Sign up](assets/home.png)
+
+### Dashboard
+![Dashboard](assets/dashboard.png)
+
+### Reward
+![Reward](assets/rewards.png)
+
+### Profile
+![Profile](assets/profile.png)

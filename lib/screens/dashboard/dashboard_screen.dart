@@ -24,6 +24,7 @@ class DashboardScreen extends StatelessWidget {
         ),
         child: SafeArea(
           child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -34,7 +35,10 @@ class DashboardScreen extends StatelessWidget {
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+                      return const Center(child: Padding(
+                        padding: EdgeInsets.all(40.0),
+                        child: CircularProgressIndicator(color: AppColors.primary),
+                      ));
                     }
                     if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
                       return _buildHeader(context, 'User', 1, 0);
@@ -47,7 +51,7 @@ class DashboardScreen extends StatelessWidget {
                   },
                 ),
                 Padding(
-                  padding: const EdgeInsets.all(24.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -59,7 +63,10 @@ class DashboardScreen extends StatelessWidget {
                             .snapshots(),
                         builder: (context, snapshot) {
                           if (snapshot.connectionState == ConnectionState.waiting) {
-                            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+                            return const Center(child: Padding(
+                              padding: EdgeInsets.all(20.0),
+                              child: CircularProgressIndicator(color: AppColors.primary),
+                            ));
                           }
                           final docs = snapshot.data?.docs ?? [];
                           final int activeCount = docs.length;
@@ -67,11 +74,11 @@ class DashboardScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _buildSectionHeader('Today\'s Quests', '$activeCount active'),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 18),
                               if (docs.isEmpty)
                                 const Center(
                                   child: Padding(
-                                    padding: EdgeInsets.symmetric(vertical: 20),
+                                    padding: EdgeInsets.symmetric(vertical: 32),
                                     child: Text(
                                       'No active quests today!',
                                       style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 16),
@@ -83,7 +90,7 @@ class DashboardScreen extends StatelessWidget {
                                   shrinkWrap: true,
                                   physics: const NeverScrollableScrollPhysics(),
                                   itemCount: docs.length,
-                                  separatorBuilder: (context, index) => const SizedBox(height: 12),
+                                  separatorBuilder: (context, index) => const SizedBox(height: 16),
                                   itemBuilder: (context, index) {
                                     final questData = docs[index].data() as Map<String, dynamic>;
                                     return _QuestCard(
@@ -100,12 +107,12 @@ class DashboardScreen extends StatelessWidget {
                           );
                         },
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 32),
                       _buildQuickActions(context),
                     ],
                   ),
                 ),
-                const SizedBox(height: 80),
+                const SizedBox(height: 100),
               ],
             ),
           ),
@@ -134,7 +141,7 @@ class DashboardScreen extends StatelessWidget {
     final int xpRemaining = nextLevelXp - xp;
 
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -155,50 +162,58 @@ class DashboardScreen extends StatelessWidget {
               GestureDetector(
                 onTap: () => Navigator.pushNamed(context, '/profile'),
                 child: Container(
-                  width: 64,
-                  height: 64,
+                  width: 68,
+                  height: 68,
                   decoration: BoxDecoration(
                     gradient: AppColors.primaryGradient,
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
                         color: AppColors.primary.withAlpha(128),
-                        blurRadius: 10,
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
                       )
                     ],
                   ),
-                  child: const Center(child: Text('👤', style: TextStyle(fontSize: 24))),
+                  child: const Center(child: Text('👤', style: TextStyle(fontSize: 26))),
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 18),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       name,
-                      style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                     ),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
-                        const Icon(Icons.shield, color: AppColors.accentGold, size: 16),
-                        const SizedBox(width: 4),
+                        const Icon(Icons.shield, color: AppColors.accentGold, size: 18),
+                        const SizedBox(width: 6),
                         Text(
                           'Level $level',
-                          style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 14),
+                          style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 15),
                         ),
                       ],
                     ),
                   ],
                 ),
               ),
-              IconButton(
-                onPressed: () => Navigator.pushNamed(context, '/notifications'),
-                icon: const Icon(Icons.notifications_none, color: Color(0xFFDAB2FF)),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(13),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: IconButton(
+                  onPressed: () => Navigator.pushNamed(context, '/notifications'),
+                  icon: const Icon(Icons.notifications_none, color: Color(0xFFDAB2FF)),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 28),
           XPBar(
             progress: progress.clamp(0.0, 1.0),
             label: 'XP: $xp / $nextLevelXp',
@@ -212,6 +227,8 @@ class DashboardScreen extends StatelessWidget {
   Widget _buildSectionHeader(String title, String trailing) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
       children: [
         Text(
           title,
@@ -219,7 +236,7 @@ class DashboardScreen extends StatelessWidget {
         ),
         Text(
           trailing,
-          style: const TextStyle(color: AppColors.primary, fontSize: 14),
+          style: const TextStyle(color: AppColors.primary, fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ],
     );
@@ -280,7 +297,7 @@ class _QuestCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassContainer(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         children: [
           Row(
@@ -291,23 +308,24 @@ class _QuestCard extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w500),
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: accentColor.withAlpha(51),
+                          color: accentColor.withAlpha(40),
                           borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: accentColor.withAlpha(60)),
                         ),
                         child: Text(
                           category,
-                          style: TextStyle(color: accentColor, fontSize: 12),
+                          style: TextStyle(color: accentColor, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 14),
                       const Icon(Icons.access_time, color: Color(0xFFDAB2FF), size: 14),
                       const SizedBox(width: 4),
                       Text(
@@ -318,27 +336,34 @@ class _QuestCard extends StatelessWidget {
                   ),
                 ],
               ),
-              Row(
-                children: [
-                  const Icon(Icons.shield, color: AppColors.accentGold, size: 16),
-                  const SizedBox(width: 4),
-                  Text(
-                    xp,
-                    style: const TextStyle(color: AppColors.accentGold, fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ],
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.accentGold.withAlpha(20),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.shield, color: AppColors.accentGold, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      xp,
+                      style: const TextStyle(color: AppColors.accentGold, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Progress', style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 12)),
-              Text('${(progress * 100).toInt()}%', style: const TextStyle(color: AppColors.primary, fontSize: 12)),
+              Text('${(progress * 100).toInt()}%', style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.bold)),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           _buildProgressBar(),
         ],
       ),
@@ -347,11 +372,11 @@ class _QuestCard extends StatelessWidget {
 
   Widget _buildProgressBar() {
     return Container(
-      height: 8,
+      height: 10,
       width: double.infinity,
       decoration: BoxDecoration(
         color: Colors.white.withAlpha(13),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(5),
       ),
       child: FractionallySizedBox(
         alignment: Alignment.centerLeft,
@@ -361,7 +386,15 @@ class _QuestCard extends StatelessWidget {
             gradient: LinearGradient(
               colors: progress > 0 ? [const Color(0xFFF0B100), const Color(0xFF00C950)] : [Colors.grey, Colors.grey],
             ),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(5),
+            boxShadow: [
+              if (progress > 0)
+                BoxShadow(
+                  color: const Color(0xFF00C950).withAlpha(100),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                )
+            ],
           ),
         ),
       ),
@@ -390,20 +423,39 @@ class _QuickActionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          gradient: LinearGradient(colors: gradient),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: borderColor),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: gradient,
+          ),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: borderColor, width: 1.2),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withAlpha(40),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            )
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: Colors.white, size: 24),
-            const SizedBox(height: 12),
-            Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withAlpha(20),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: Colors.white, size: 24),
+            ),
+            const SizedBox(height: 16),
+            Text(title, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
             Text(subtitle, style: const TextStyle(color: Colors.white70, fontSize: 12)),
           ],
         ),

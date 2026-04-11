@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/glass_container.dart';
 import '../../widgets/bottom_nav_bar.dart';
@@ -60,6 +61,7 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   String selectedFilter = 'All';
+  final ImagePicker _picker = ImagePicker();
 
   Future<void> _completeTaskAndAwardXP(
     DocumentSnapshot taskDoc, {
@@ -129,7 +131,7 @@ class _TasksScreenState extends State<TasksScreen> {
         final userDoc = await transaction.get(userDocRef);
         final userData = userDoc.data() as Map<String, dynamic>?;
 
-        // --- PART 1: Streak Logic ---
+        // --- Streak Logic ---
         int currentStreak = userData?['currentStreak'] ?? 0;
         Timestamp? lastTaskDateTs = userData?['lastTaskDate'];
         
@@ -146,10 +148,8 @@ class _TasksScreenState extends State<TasksScreen> {
           } else if (difference > 1) {
             currentStreak = 1;
           }
-          // if difference == 0 (today), keep streak same
         }
 
-        // --- Streak Bonus ---
         double streakBonus = 1.0;
         if (currentStreak >= 7) {
           streakBonus = 1.2;
@@ -157,15 +157,12 @@ class _TasksScreenState extends State<TasksScreen> {
           streakBonus = 1.1;
         }
 
-        // --- Calculate Final XP ---
         int calculatedXp = (baseXp * multiplier * streakBonus).toInt();
         
-        // Proof Bonus (+5 XP)
         if (completionNote.isNotEmpty || hasPhotoProof) {
           calculatedXp += 5;
         }
 
-        // Spam Cap (Max 10 XP if same title today)
         if (isSpam && calculatedXp > 10) {
           calculatedXp = 10;
         }
@@ -187,7 +184,6 @@ class _TasksScreenState extends State<TasksScreen> {
           'hasPhotoProof': hasPhotoProof,
         });
 
-        // Add transaction record
         final transactionRef = FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
@@ -214,8 +210,8 @@ class _TasksScreenState extends State<TasksScreen> {
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Task Completed! + XP awarded.'), // Exact text not specified, following general success
+            const SnackBar(
+              content: Text('Task Completed! XP awarded.'),
               backgroundColor: Colors.green,
             ),
           );
@@ -227,6 +223,16 @@ class _TasksScreenState extends State<TasksScreen> {
           SnackBar(content: Text('Error completing task: $e')),
         );
       }
+    }
+  }
+
+  Future<bool> _takePhoto() async {
+    try {
+      final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
+      return photo != null;
+    } catch (e) {
+      debugPrint("Error picking image: $e");
+      return false;
     }
   }
 
@@ -278,10 +284,13 @@ class _TasksScreenState extends State<TasksScreen> {
                   Row(
                     children: [
                       IconButton(
-                        onPressed: () {
-                          setModalState(() {
-                            hasPhotoProof = !hasPhotoProof;
-                          });
+                        onPressed: () async {
+                          bool success = await _takePhoto();
+                          if (success) {
+                            setModalState(() {
+                              hasPhotoProof = true;
+                            });
+                          }
                         },
                         icon: Icon(
                           Icons.camera_alt,
@@ -399,7 +408,6 @@ class _TasksScreenState extends State<TasksScreen> {
                               physics: const NeverScrollableScrollPhysics(),
                               itemCount: filteredTasks.length,
                               itemBuilder: (context, index) {
-                                // Find the original document
                                 final doc = docs.firstWhere((d) => d.id == filteredTasks[index].id);
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12.0),
@@ -484,7 +492,7 @@ class _TasksScreenState extends State<TasksScreen> {
                   children: [
                     Icon(Icons.add, color: Colors.white),
                     SizedBox(width: 8),
-                    const Text('Create New Task', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                    Text('Create New Task', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
                   ],
                 ),
               ),

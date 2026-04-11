@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/glass_container.dart';
 import '../../widgets/xp_bar.dart';
@@ -10,6 +11,8 @@ class DashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -24,21 +27,85 @@ class DashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildHeader(context),
+                StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user?.uid)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+                    }
+                    if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
+                      return _buildHeader(context, 'User', 1, 0);
+                    }
+                    final userData = snapshot.data!.data() as Map<String, dynamic>;
+                    final String name = userData['username'] ?? userData['name'] ?? 'User';
+                    final int level = userData['level'] ?? 1;
+                    final int xp = userData['xp'] ?? 0;
+                    return _buildHeader(context, name, level, xp);
+                  },
+                ),
                 Padding(
                   padding: const EdgeInsets.all(24.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildSectionHeader('Today\'s Quests', '4 active'),
-                      const SizedBox(height: 16),
-                      _buildQuestList(),
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user?.uid)
+                            .collection('tasks')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+                          }
+                          final docs = snapshot.data?.docs ?? [];
+                          final int activeCount = docs.length;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildSectionHeader('Today\'s Quests', '$activeCount active'),
+                              const SizedBox(height: 16),
+                              if (docs.isEmpty)
+                                const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 20),
+                                    child: Text(
+                                      'No active quests today!',
+                                      style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 16),
+                                    ),
+                                  ),
+                                )
+                              else
+                                ListView.separated(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount: docs.length,
+                                  separatorBuilder: (context, index) => const SizedBox(height: 12),
+                                  itemBuilder: (context, index) {
+                                    final questData = docs[index].data() as Map<String, dynamic>;
+                                    return _QuestCard(
+                                      title: questData['title'] ?? 'New Quest',
+                                      category: questData['category'] ?? 'General',
+                                      timeLeft: 'Active',
+                                      xp: '+${questData['xpReward'] ?? 0}',
+                                      progress: (questData['progress'] ?? 0.0).toDouble(),
+                                      accentColor: _getCategoryColor(questData['category']),
+                                    );
+                                  },
+                                ),
+                            ],
+                          );
+                        },
+                      ),
                       const SizedBox(height: 24),
                       _buildQuickActions(context),
                     ],
                   ),
                 ),
-                const SizedBox(height: 80), 
+                const SizedBox(height: 80),
               ],
             ),
           ),
@@ -48,9 +115,23 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    final User? user = FirebaseAuth.instance.currentUser;
-    final String displayName = user?.displayName ?? 'User';
+  Color _getCategoryColor(String? category) {
+    switch (category) {
+      case 'Study':
+        return AppColors.accentCyan;
+      case 'Fitness':
+        return AppColors.accentGreen;
+      case 'Habit':
+        return AppColors.primary;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  Widget _buildHeader(BuildContext context, String name, int level, int xp) {
+    final int nextLevelXp = level * 100;
+    final double progress = xp / nextLevelXp;
+    final int xpRemaining = nextLevelXp - xp;
 
     return Container(
       padding: const EdgeInsets.all(24),
@@ -59,12 +140,12 @@ class DashboardScreen extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF59168B).withValues(alpha: 0.4),
-            const Color(0xFF312C85).withValues(alpha: 0.4),
+            const Color(0xFF59168B).withAlpha(102),
+            const Color(0xFF312C85).withAlpha(102),
           ],
         ),
         border: Border(
-          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          bottom: BorderSide(color: Colors.white.withAlpha(26)),
         ),
       ),
       child: Column(
@@ -81,7 +162,7 @@ class DashboardScreen extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.primary.withValues(alpha: 0.5),
+                        color: AppColors.primary.withAlpha(128),
                         blurRadius: 10,
                       )
                     ],
@@ -95,16 +176,16 @@ class DashboardScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      displayName,
+                      name,
                       style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     Row(
                       children: [
                         const Icon(Icons.shield, color: AppColors.accentGold, size: 16),
                         const SizedBox(width: 4),
-                        const Text(
-                          'Level 5',
-                          style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 14),
+                        Text(
+                          'Level $level',
+                          style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 14),
                         ),
                       ],
                     ),
@@ -118,10 +199,10 @@ class DashboardScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 20),
-          const XPBar(
-            progress: 0.84,
-            label: 'XP: 420 / 500',
-            trailing: '80 to Level 6',
+          XPBar(
+            progress: progress.clamp(0.0, 1.0),
+            label: 'XP: $xp / $nextLevelXp',
+            trailing: '$xpRemaining to Level ${level + 1}',
           ),
         ],
       ),
@@ -144,39 +225,6 @@ class DashboardScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildQuestList() {
-    return Column(
-      children: [
-        _QuestCard(
-          title: 'Study 2 hours',
-          category: 'Study',
-          timeLeft: '1h 12m left',
-          xp: '+50',
-          progress: 0.6,
-          accentColor: AppColors.accentCyan,
-        ),
-        const SizedBox(height: 12),
-        _QuestCard(
-          title: 'Complete Workout',
-          category: 'Fitness',
-          timeLeft: '45m',
-          xp: '+30',
-          progress: 0.0,
-          accentColor: AppColors.accentGreen,
-        ),
-        const SizedBox(height: 12),
-        _QuestCard(
-          title: 'Read 20 pages',
-          category: 'Habit',
-          timeLeft: '5 pages left',
-          xp: '+25',
-          progress: 0.75,
-          accentColor: AppColors.primary,
-        ),
-      ],
-    );
-  }
-
   Widget _buildQuickActions(BuildContext context) {
     return Row(
       children: [
@@ -187,10 +235,10 @@ class DashboardScreen extends StatelessWidget {
             subtitle: '3 friends online',
             icon: Icons.people_outline,
             gradient: [
-              const Color(0xFF155DFC).withValues(alpha: 0.2),
-              const Color(0xFF4F39F6).withValues(alpha: 0.2),
+              const Color(0xFF155DFC).withAlpha(51),
+              const Color(0xFF4F39F6).withAlpha(51),
             ],
-            borderColor: const Color(0xFF2B7FFF).withValues(alpha: 0.3),
+            borderColor: const Color(0xFF2B7FFF).withAlpha(77),
           ),
         ),
         const SizedBox(width: 16),
@@ -201,10 +249,10 @@ class DashboardScreen extends StatelessWidget {
             subtitle: '5 unlocked',
             icon: Icons.card_giftcard,
             gradient: [
-              const Color(0xFF9810FA).withValues(alpha: 0.2),
-              const Color(0xFFE60076).withValues(alpha: 0.2),
+              const Color(0xFF9810FA).withAlpha(51),
+              const Color(0xFFE60076).withAlpha(51),
             ],
-            borderColor: AppColors.primary.withValues(alpha: 0.3),
+            borderColor: AppColors.primary.withAlpha(77),
           ),
         ),
       ],
@@ -251,7 +299,7 @@ class _QuestCard extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: accentColor.withValues(alpha: 0.2),
+                          color: accentColor.withAlpha(51),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -302,12 +350,12 @@ class _QuestCard extends StatelessWidget {
       height: 8,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
+        color: Colors.white.withAlpha(13),
         borderRadius: BorderRadius.circular(4),
       ),
       child: FractionallySizedBox(
         alignment: Alignment.centerLeft,
-        widthFactor: progress,
+        widthFactor: progress.clamp(0.0, 1.0),
         child: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(

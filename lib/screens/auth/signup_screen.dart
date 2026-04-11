@@ -1,6 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -13,6 +16,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -28,6 +32,69 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() => _isGoogleLoading = true);
+    try {
+      final GoogleSignInAccount? googleUser = await GoogleSignIn(
+        serverClientId: '613277586109-emt42fc6ttdf605d20duqmj9janahioe.apps.googleusercontent.com',
+      ).signIn();
+      
+      if (googleUser == null) {
+        setState(() => _isGoogleLoading = false);
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      final User? user = userCredential.user;
+
+      if (user != null) {
+        // Save user profile to Firestore if it doesn't exist
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        
+        if (!userDoc.exists) {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'uid': user.uid,
+            'name': user.displayName ?? 'New Explorer',
+            'email': user.email,
+            'createdAt': FieldValue.serverTimestamp(),
+            'level': 1,
+            'xp': 0,
+          });
+        }
+      }
+      
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      }
+    } on PlatformException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Google Error: [${e.code}] ${e.message}'),
+            backgroundColor: Colors.redAccent,
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unexpected error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGoogleLoading = false);
+      }
+    }
   }
 
   Future<void> _signUp() async {
@@ -53,8 +120,21 @@ class _SignUpScreenState extends State<SignUpScreen> {
         password: _passwordController.text.trim(),
       );
       
-      // Update display name
-      await userCredential.user?.updateDisplayName(_nameController.text.trim());
+      final User? user = userCredential.user;
+      if (user != null) {
+        await user.updateDisplayName(_nameController.text.trim());
+        
+        // Save user profile to Firestore
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'uid': user.uid,
+          'name': _nameController.text.trim(),
+          'email': _emailController.text.trim(),
+          'phone': _phoneController.text.trim(),
+          'createdAt': FieldValue.serverTimestamp(),
+          'level': 1,
+          'xp': 0,
+        });
+      }
       
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/dashboard');
@@ -326,8 +406,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             ],
                           ),
                           const SizedBox(height: 24),
+                          // GOOGLE SIGN IN BUTTON
                           InkWell(
-                            onTap: () {},
+                            onTap: _isGoogleLoading ? null : _signInWithGoogle,
                             borderRadius: BorderRadius.circular(16),
                             child: Container(
                               width: double.infinity,
@@ -341,14 +422,35 @@ class _SignUpScreenState extends State<SignUpScreen> {
                                   width: 1.2,
                                 ),
                               ),
-                              child: const Text(
-                                'Continue with Google',
-                                style: TextStyle(
-                                  color: Color(0xFFDAB2FF),
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                              child: _isGoogleLoading
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Image.asset(
+                                          'assets/images/google_logo.png',
+                                          height: 24,
+                                          errorBuilder: (context, error, stackTrace) => 
+                                              const Icon(Icons.g_mobiledata, color: Colors.white, size: 24),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        const Text(
+                                          'Continue with Google',
+                                          style: TextStyle(
+                                            color: Color(0xFFDAB2FF),
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                             ),
                           ),
                         ],

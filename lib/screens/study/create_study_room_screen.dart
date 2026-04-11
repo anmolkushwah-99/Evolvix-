@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/constants/app_colors.dart';
 
 class CreateStudyRoomScreen extends StatefulWidget {
@@ -47,6 +49,60 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
     }
   }
 
+  Future<void> _createStudyRoom() async {
+    final roomName = _roomNameController.text.trim();
+    final subject = _subjectController.text.trim();
+    final description = _descriptionController.text.trim();
+    final maxParticipants = int.tryParse(_maxUsersController.text) ?? 5;
+
+    if (roomName.isEmpty || subject.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Room Name and Subject are required!')),
+      );
+      return;
+    }
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        // Fetch host name from users collection
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final hostName = userDoc.data()?['username'] ?? userDoc.data()?['name'] ?? 'Adventurer';
+
+        // 1. The Write Path: Root collection studyRooms
+        // 2. The Required Data Fields
+        await FirebaseFirestore.instance.collection('studyRooms').add({
+          'roomName': roomName,
+          'subject': subject,
+          'description': description,
+          'privacy': isPublic ? 'Public' : 'Private',
+          'maxParticipants': maxParticipants,
+          'currentParticipants': 1, // Automatically set to 1 when created
+          'hostUid': user.uid,
+          'hostName': hostName,
+          'duration': studyDuration.toInt(),
+          'theme': selectedTheme,
+          'tags': tags,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Study Room created successfully!')),
+          );
+          // 3. Navigation: Return to Study Party screen
+          Navigator.pop(context);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error creating study room: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -67,16 +123,10 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
             ),
             Text(
               'Set up your collaborative space',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12),
+              style: TextStyle(color: Colors.white.withAlpha(128), fontSize: 12),
             ),
           ],
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.group_add_outlined, color: Color(0xFFC27AFF)),
-            onPressed: () {},
-          ),
-        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -145,7 +195,7 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                           const SizedBox(height: 8),
                           Text(
                             isPublic ? 'Anyone can join this room' : 'Only invited can join',
-                            style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 10),
+                            style: TextStyle(color: Colors.white.withAlpha(102), fontSize: 10),
                           ),
                         ],
                       ),
@@ -168,7 +218,7 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                           const SizedBox(height: 8),
                           Text(
                             '2-20 participants',
-                            style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 10),
+                            style: TextStyle(color: Colors.white.withAlpha(102), fontSize: 10),
                           ),
                         ],
                       ),
@@ -185,9 +235,9 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                     SliderTheme(
                       data: SliderTheme.of(context).copyWith(
                         activeTrackColor: AppColors.primary,
-                        inactiveTrackColor: Colors.white.withValues(alpha: 0.1),
+                        inactiveTrackColor: Colors.white.withAlpha(26),
                         thumbColor: Colors.white,
-                        overlayColor: AppColors.primary.withValues(alpha: 0.2),
+                        overlayColor: AppColors.primary.withAlpha(51),
                       ),
                       child: Slider(
                         value: studyDuration,
@@ -201,7 +251,7 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: ['15 min', '1 hour', '2 hours', '4 hours']
-                            .map((e) => Text(e, style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 10)))
+                            .map((e) => Text(e, style: TextStyle(color: Colors.white.withAlpha(102), fontSize: 10)))
                             .toList(),
                       ),
                     ),
@@ -239,7 +289,7 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                           const SizedBox(height: 4),
                           Text(
                             entry.key.split(' ').first,
-                            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 10),
+                            style: TextStyle(color: Colors.white.withAlpha(153), fontSize: 10),
                           ),
                         ],
                       ),
@@ -280,7 +330,7 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                     const SizedBox(height: 8),
                     Text(
                       '${tags.length}/5 tags',
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 10),
+                      style: TextStyle(color: Colors.white.withAlpha(102), fontSize: 10),
                     ),
                     const SizedBox(height: 8),
                     Wrap(
@@ -289,7 +339,7 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                           .map((tag) => Chip(
                                 label: Text(tag, style: const TextStyle(fontSize: 12)),
                                 onDeleted: () => setState(() => tags.remove(tag)),
-                                backgroundColor: const Color(0xFF59168B).withValues(alpha: 0.3),
+                                backgroundColor: const Color(0xFF59168B).withAlpha(77),
                                 labelStyle: const TextStyle(color: Color(0xFFC27AFF)),
                                 deleteIconColor: const Color(0xFFC27AFF),
                                 side: BorderSide.none,
@@ -309,19 +359,14 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.4),
+                      color: AppColors.primary.withAlpha(102),
                       blurRadius: 15,
                       offset: const Offset(0, 8),
                     ),
                   ],
                 ),
                 child: ElevatedButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Study Room created successfully!')),
-                    );
-                    Navigator.pop(context);
-                  },
+                  onPressed: _createStudyRoom,
                   icon: const Icon(Icons.people_outline, color: Colors.white),
                   label: const Text(
                     'Create Study Room',
@@ -335,26 +380,6 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1C398E).withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.blue.withValues(alpha: 0.2)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.lightbulb_outline, color: Colors.blue, size: 20),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Pro Tip: Study rooms with clear descriptions and tags get 3x more participants!',
-                        style: TextStyle(color: Colors.blue, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
         ),
@@ -367,9 +392,9 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFF59168B).withValues(alpha: 0.15),
+        color: const Color(0xFF59168B).withAlpha(38),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: Colors.white.withAlpha(13)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -396,9 +421,9 @@ class _CreateStudyRoomScreenState extends State<CreateStudyRoomScreen> {
   InputDecoration _inputDecoration(String hint) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.2), fontSize: 14),
+      hintStyle: TextStyle(color: Colors.white.withAlpha(51), fontSize: 14),
       filled: true,
-      fillColor: const Color(0xFF0D051A).withValues(alpha: 0.5),
+      fillColor: const Color(0xFF0D051A).withAlpha(128),
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       counterStyle: const TextStyle(color: Colors.white24, fontSize: 10),

@@ -1,4 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:csv/csv.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/constants/app_colors.dart';
 
 enum TransactionType { earned, spent, badge }
@@ -106,6 +110,42 @@ class _RewardHistoryScreenState extends State<RewardHistoryScreen> {
     ),
   ];
 
+  Future<void> _exportHistoryToCSV() async {
+    try {
+      // 1. Extract and map data into List<List<dynamic>>
+      List<List<dynamic>> csvData = [
+        ['Title', 'XP Amount', 'Date', 'Type'], // Headers
+        ...transactions.map((t) => [
+          t.title,
+          t.xpAmount,
+          t.date,
+          t.type.toString().split('.').last,
+        ]),
+      ];
+
+      // 2. Convert to CSV string
+      String csvString = const ListToCsvConverter().convert(csvData);
+
+      // 3. Get temporary directory and save file
+      final directory = await getTemporaryDirectory();
+      final path = '${directory.path}/evolvix_reward_history.csv';
+      final file = File(path);
+      await file.writeAsString(csvString);
+
+      // 4. Trigger share sheet using Share.shareXFiles
+      await Share.shareXFiles([XFile(path)], text: 'My Evolvix Reward History Export');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error exporting history: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     List<RewardTransaction> filteredList = transactions.where((t) {
@@ -132,7 +172,7 @@ class _RewardHistoryScreenState extends State<RewardHistoryScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.download_outlined, color: Colors.white),
-            onPressed: () {},
+            onPressed: _exportHistoryToCSV,
           ),
         ],
       ),

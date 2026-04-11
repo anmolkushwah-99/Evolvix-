@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../core/constants/app_colors.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -20,11 +21,37 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       duration: const Duration(seconds: 3),
     )..forward();
 
-    Timer(const Duration(seconds: 4), () {
-      if (mounted) {
+    _checkAuthAndNavigate();
+  }
+
+  Future<void> _checkAuthAndNavigate() async {
+    // Wait for the animation to complete (simulating initialization)
+    await Future.delayed(const Duration(seconds: 4));
+
+    if (!mounted) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      Navigator.pushReplacementNamed(context, '/login');
+    } else {
+      try {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+        if (!mounted) return;
+
+        if (!userDoc.exists) {
+          // FIRST TIME LOGIN: Route to Character Creation!
+          Navigator.pushReplacementNamed(context, '/character_creation');
+        } else {
+          // RETURNING USER: Route to the Home Screen
+          Navigator.pushReplacementNamed(context, '/dashboard');
+        }
+      } catch (e) {
+        // Handle error, maybe go to login
         Navigator.pushReplacementNamed(context, '/login');
       }
-    });
+    }
   }
 
   @override
@@ -58,85 +85,30 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               children: [
                 const Spacer(flex: 3),
 
-
                 // Branded Logo Centerpiece
-
                 Center(
-
                   child: Container(
-
                     width: 120,
-
                     height: 120,
-
                     decoration: BoxDecoration(
-
                       shape: BoxShape.circle,
-
                       border: Border.all(color: Colors.white.withOpacity(0.1)),
-
                       boxShadow: [
-
                         BoxShadow(
-
-                          color: const Color(0xFF9810FA).withOpacity(0.2), // Your purple glow
-
+                          color: const Color(0xFF9810FA).withOpacity(0.2),
                           blurRadius: 40,
-
                           spreadRadius: 10,
-
                         ),
-
                       ],
-
-                      // This maps your image directly to the circle shape
-
                       image: const DecorationImage(
-
                         image: AssetImage('assets/images/evolvix_logo_wt.png'),
-
                         fit: BoxFit.cover,
-
                       ),
-
                     ),
-
                   ),
-
                 ),
 
-
-
                 const SizedBox(height: 32),
-                // // Logo
-                // Center(
-                //   child: Container(
-                //     width: 120,
-                //     height: 120,
-                //     decoration: BoxDecoration(
-                //       shape: BoxShape.circle,
-                //       color: Colors.white.withOpacity(0.05),
-                //       border: Border.all(color: Colors.white.withOpacity(0.1)),
-                //       boxShadow: [
-                //         BoxShadow(
-                //           color: const Color(0xFF9810FA).withOpacity(0.2),
-                //           blurRadius: 40,
-                //           spreadRadius: 10,
-                //         ),
-                //       ],
-                //     ),
-                //     child: Padding(
-                //       padding: const EdgeInsets.all(12),
-                //       child: Image.asset(
-                //         'assets/images/evolvix_logo_wt.png',
-                //         errorBuilder: (context, error, stackTrace) =>
-                //             const Icon(Icons.rocket_launch, color: Colors.white, size: 60),
-                //       ),
-                //     ),
-                //   ),
-                // ),
-                //
-                // const SizedBox(height: 32),
                 
                 // Title
                 const Text(

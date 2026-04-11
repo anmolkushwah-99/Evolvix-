@@ -64,6 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '613277586109',
     projectId: 'evolvix-5f20b',
     storageBucket: 'evolvix-5f20b.firebasestorage.app',
+    iosClientId: '613277586109-15l20navqpsjffabm39k5plmvpue2fuc.apps.googleusercontent.com',
     iosBundleId: 'com.example.evolvix',
   );
 
@@ -73,6 +74,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '613277586109',
     projectId: 'evolvix-5f20b',
     storageBucket: 'evolvix-5f20b.firebasestorage.app',
+    iosClientId: '613277586109-15l20navqpsjffabm39k5plmvpue2fuc.apps.googleusercontent.com',
     iosBundleId: 'com.example.evolvix',
   );
 
@@ -85,4 +87,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'evolvix-5f20b.firebasestorage.app',
     measurementId: 'G-RRFXVFYS5Y',
   );
+
 }

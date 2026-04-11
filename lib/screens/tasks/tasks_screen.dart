@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/glass_container.dart';
 import '../../widgets/bottom_nav_bar.dart';
@@ -9,7 +11,7 @@ class Task {
   final String title;
   final String category;
   final String difficulty;
-  String status; // 'In Progress', 'Pending', 'Completed'
+  final String status; // 'In Progress', 'Pending', 'Completed'
   final DateTime dueDate;
   final double progress;
   final int xpReward;
@@ -24,6 +26,20 @@ class Task {
     required this.progress,
     required this.xpReward,
   });
+
+  factory Task.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return Task(
+      id: doc.id,
+      title: data['title'] ?? '',
+      category: data['category'] ?? 'General',
+      difficulty: data['difficulty'] ?? 'Medium',
+      status: data['status'] ?? 'Pending',
+      dueDate: (data['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      progress: (data['progress'] ?? 0.0).toDouble(),
+      xpReward: data['xpReward'] ?? 0,
+    );
+  }
 }
 
 class TasksScreen extends StatefulWidget {
@@ -36,79 +52,10 @@ class TasksScreen extends StatefulWidget {
 class _TasksScreenState extends State<TasksScreen> {
   String selectedFilter = 'All';
 
-  final List<Task> _tasks = [
-    Task(
-      id: '1',
-      title: 'Study 2 hours',
-      category: 'Study',
-      difficulty: 'Medium',
-      status: 'In Progress',
-      dueDate: DateTime.now().copyWith(hour: 18, minute: 0),
-      progress: 0.6,
-      xpReward: 50,
-    ),
-    Task(
-      id: '2',
-      title: 'Complete Workout',
-      category: 'Fitness',
-      difficulty: 'Easy',
-      status: 'Pending',
-      dueDate: DateTime.now().copyWith(hour: 20, minute: 0),
-      progress: 0.0,
-      xpReward: 30,
-    ),
-    Task(
-      id: '3',
-      title: 'Read 20 pages',
-      category: 'Habit',
-      difficulty: 'Easy',
-      status: 'In Progress',
-      dueDate: DateTime.now().add(const Duration(days: 1)).copyWith(hour: 10, minute: 0),
-      progress: 0.75,
-      xpReward: 25,
-    ),
-    Task(
-      id: '4',
-      title: 'Practice coding',
-      category: 'Study',
-      difficulty: 'Medium',
-      status: 'In Progress',
-      dueDate: DateTime.now().add(const Duration(days: 1)).copyWith(hour: 17, minute: 0),
-      progress: 0.3,
-      xpReward: 40,
-    ),
-    Task(
-      id: '5',
-      title: 'Team project meeting',
-      category: 'Work',
-      difficulty: 'Medium',
-      status: 'Pending',
-      dueDate: DateTime(2024, 3, 28, 14, 0),
-      progress: 0.0,
-      xpReward: 35,
-    ),
-    Task(
-      id: '6',
-      title: 'Learn React Hooks',
-      category: 'Study',
-      difficulty: 'Hard',
-      status: 'In Progress',
-      dueDate: DateTime(2024, 3, 30, 9, 0),
-      progress: 0.1,
-      xpReward: 60,
-    ),
-  ];
-
   @override
   Widget build(BuildContext context) {
-    List<Task> filteredTasks = selectedFilter == 'All'
-        ? _tasks
-        : _tasks.where((task) => task.status == selectedFilter).toList();
-
-    int completedCount = _tasks.where((t) => t.status == 'Completed').length;
-    int inProgressCount = _tasks.where((t) => t.status == 'In Progress').length;
-    int pendingCount = _tasks.where((t) => t.status == 'Pending').length;
-
+    final user = FirebaseAuth.instance.currentUser;
+    
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -119,40 +66,79 @@ class _TasksScreenState extends State<TasksScreen> {
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              _buildHeader(context),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildFilters(),
-                      const SizedBox(height: 24),
-                      _buildStats(completedCount, inProgressCount, pendingCount),
-                      const SizedBox(height: 24),
-                      const Text(
-                        'Upcoming Quests',
-                        style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500),
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .doc(user?.uid)
+                .collection('tasks')
+                .orderBy('createdAt', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.white)));
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+              }
+
+              final docs = snapshot.data?.docs ?? [];
+              final allTasks = docs.map((doc) => Task.fromFirestore(doc)).toList();
+              
+              if (allTasks.isEmpty) {
+                return _buildEmptyState(context);
+              }
+
+              List<Task> filteredTasks = selectedFilter == 'All'
+                  ? allTasks
+                  : allTasks.where((task) => task.status == selectedFilter).toList();
+
+              int completedCount = allTasks.where((t) => t.status == 'Completed').length;
+              int inProgressCount = allTasks.where((t) => t.status == 'In Progress').length;
+              int pendingCount = allTasks.where((t) => t.status == 'Pending').length;
+
+              return Column(
+                children: [
+                  _buildHeader(context, allTasks.length),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildFilters(),
+                          const SizedBox(height: 24),
+                          _buildStats(completedCount, inProgressCount, pendingCount),
+                          const SizedBox(height: 24),
+                          const Text(
+                            'Upcoming Quests',
+                            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 16),
+                          if (filteredTasks.isEmpty)
+                             const Center(child: Padding(
+                               padding: EdgeInsets.symmetric(vertical: 40),
+                               child: Text('No items here yet!', style: TextStyle(color: Color(0xFFDAB2FF))),
+                             ))
+                          else
+                            ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: filteredTasks.length,
+                              itemBuilder: (context, index) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 12.0),
+                                  child: _buildTaskCard(filteredTasks[index]),
+                                );
+                              },
+                            ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: filteredTasks.length,
-                        itemBuilder: (context, index) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 12.0),
-                            child: _buildTaskCard(filteredTasks[index]),
-                          );
-                        },
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -160,7 +146,23 @@ class _TasksScreenState extends State<TasksScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildEmptyState(BuildContext context) {
+    return Column(
+      children: [
+        _buildHeader(context, 0),
+        const Expanded(
+          child: Center(
+            child: Text(
+              'No items here yet!',
+              style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 18),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeader(BuildContext context, int taskCount) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -168,11 +170,11 @@ class _TasksScreenState extends State<TasksScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF59168B).withValues(alpha: 0.4),
-            const Color(0xFF312C85).withValues(alpha: 0.4),
+            const Color(0xFF59168B).withAlpha(102),
+            const Color(0xFF312C85).withAlpha(102),
           ],
         ),
-        border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
+        border: Border(bottom: BorderSide(color: Colors.white.withAlpha(26))),
       ),
       child: Column(
         children: [
@@ -182,7 +184,7 @@ class _TasksScreenState extends State<TasksScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('My Tasks', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
-                  Text('${_tasks.length} tasks available', style: const TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
+                  Text('$taskCount tasks available', style: const TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
                 ],
               ),
             ],
@@ -237,9 +239,9 @@ class _TasksScreenState extends State<TasksScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
-                  color: isActive ? const Color(0xFF9810FA) : const Color(0xFF59168B).withValues(alpha: 0.3),
+                  color: isActive ? const Color(0xFF9810FA) : const Color(0xFF59168B).withAlpha(77),
                   borderRadius: BorderRadius.circular(12),
-                  border: isActive ? null : Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                  border: isActive ? null : Border.all(color: Colors.white.withAlpha(26)),
                 ),
                 child: Text(
                   filter,
@@ -257,9 +259,9 @@ class _TasksScreenState extends State<TasksScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        _buildStatCard(completed.toString(), 'Completed', const Color(0xFF51A2FF), [const Color(0xFF1C398E).withValues(alpha: 0.3), const Color(0xFF312C85).withValues(alpha: 0.3)]),
-        _buildStatCard(inProgress.toString(), 'In Progress', const Color(0xFFFDC700), [const Color(0xFF733E0A).withValues(alpha: 0.3), const Color(0xFF7E2A0C).withValues(alpha: 0.3)]),
-        _buildStatCard(pending.toString(), 'Pending', const Color(0xFFC27AFF), [const Color(0xFF59168B).withValues(alpha: 0.3), const Color(0xFF861043).withValues(alpha: 0.3)]),
+        _buildStatCard(completed.toString(), 'Completed', const Color(0xFF51A2FF), [const Color(0xFF1C398E).withAlpha(77), const Color(0xFF312C85).withAlpha(77)]),
+        _buildStatCard(inProgress.toString(), 'In Progress', const Color(0xFFFDC700), [const Color(0xFF733E0A).withAlpha(77), const Color(0xFF7E2A0C).withAlpha(77)]),
+        _buildStatCard(pending.toString(), 'Pending', const Color(0xFFC27AFF), [const Color(0xFF59168B).withAlpha(77), const Color(0xFF861043).withAlpha(77)]),
       ],
     );
   }
@@ -271,7 +273,7 @@ class _TasksScreenState extends State<TasksScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: gradient),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(color: color.withAlpha(77)),
       ),
       child: Column(
         children: [
@@ -313,6 +315,8 @@ class _TasksScreenState extends State<TasksScreen> {
         break;
     }
 
+    final user = FirebaseAuth.instance.currentUser;
+
     return GlassContainer(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -328,11 +332,11 @@ class _TasksScreenState extends State<TasksScreen> {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      _buildBadge(task.category, AppColors.primary.withValues(alpha: 0.2), AppColors.primary),
+                      _buildBadge(task.category, AppColors.primary.withAlpha(51), AppColors.primary),
                       const SizedBox(width: 8),
-                      _buildBadge(task.difficulty, difficultyColor.withValues(alpha: 0.2), difficultyColor),
+                      _buildBadge(task.difficulty, difficultyColor.withAlpha(51), difficultyColor),
                       const SizedBox(width: 8),
-                      _buildBadge(task.status, statusColor.withValues(alpha: 0.2), statusColor),
+                      _buildBadge(task.status, statusColor.withAlpha(51), statusColor),
                     ],
                   ),
                 ],
@@ -372,12 +376,12 @@ class _TasksScreenState extends State<TasksScreen> {
               Expanded(
                 child: ElevatedButton(
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Resuming task: ${task.title}')),
-                    );
-                    setState(() {
-                      task.status = 'In Progress';
-                    });
+                    FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user?.uid)
+                        .collection('tasks')
+                        .doc(task.id)
+                        .update({'status': 'In Progress'});
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF9810FA),
@@ -392,7 +396,7 @@ class _TasksScreenState extends State<TasksScreen> {
                   Navigator.pushNamed(context, '/task_details', arguments: task);
                 },
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                  side: BorderSide(color: Colors.white.withAlpha(26)),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: const Text('Details', style: TextStyle(color: Color(0xFFDAB2FF))),
@@ -417,7 +421,7 @@ class _TasksScreenState extends State<TasksScreen> {
       height: 8,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: const Color(0xFF3C0366).withValues(alpha: 0.5),
+        color: const Color(0xFF3C0366).withAlpha(128),
         borderRadius: BorderRadius.circular(4),
       ),
       child: FractionallySizedBox(

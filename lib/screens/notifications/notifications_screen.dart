@@ -1,19 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:timeago/timeago.dart' as timeago;
 import '../../core/constants/app_colors.dart';
-
-class NotificationItem {
-  final String title;
-  final String description;
-  final String timeAgo;
-  final bool isUnread;
-
-  NotificationItem({
-    required this.title,
-    required this.description,
-    required this.timeAgo,
-    required this.isUnread,
-  });
-}
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -23,48 +12,13 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  final List<NotificationItem> _notifications = [
-    NotificationItem(
-      title: 'New Achievement Unlocked!',
-      description: 'You\'ve earned the \'Study Streak Master\' badge',
-      timeAgo: '2m ago',
-      isUnread: true,
-    ),
-    NotificationItem(
-      title: 'Study Room Invitation',
-      description: 'Alex invited you to \'Physics Problems\' session',
-      timeAgo: '10m ago',
-      isUnread: true,
-    ),
-    NotificationItem(
-      title: 'Quest Completed!',
-      description: 'Completed \'Calculus Assignment\' +150 XP',
-      timeAgo: '1h ago',
-      isUnread: true,
-    ),
-    NotificationItem(
-      title: 'Daily Login Bonus',
-      description: '+50 XP for logging in today',
-      timeAgo: '3h ago',
-      isUnread: false,
-    ),
-    NotificationItem(
-      title: 'New Friend Request',
-      description: 'Sarah wants to connect with you',
-      timeAgo: '5h ago',
-      isUnread: false,
-    ),
-    NotificationItem(
-      title: 'Quest Reminder',
-      description: '\'Chemistry Reading\' due tomorrow at 6:00 PM',
-      timeAgo: '1d ago',
-      isUnread: false,
-    ),
-  ];
-
   @override
   Widget build(BuildContext context) {
-    int unreadCount = _notifications.where((n) => n.isUnread).length;
+    final String? userId = FirebaseAuth.instance.currentUser?.uid;
+
+    if (userId == null) {
+      return const Scaffold(body: Center(child: Text('Please log in to see notifications')));
+    }
 
     return Scaffold(
       body: Container(
@@ -79,19 +33,48 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              _buildCustomAppBar(context, unreadCount),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _notifications.length,
-                  itemBuilder: (context, index) {
-                    return _buildNotificationCard(_notifications[index]);
-                  },
-                ),
-              ),
-            ],
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .doc(userId)
+                .collection('notifications')
+                .orderBy('timestamp', descending: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.white)));
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator(color: Color(0xFFAD46FF)));
+              }
+
+              final List<QueryDocumentSnapshot> docs = snapshot.data?.docs ?? [];
+              final int unreadCount = docs.where((doc) => (doc.data() as Map<String, dynamic>)['isUnread'] == true).length;
+
+              return Column(
+                children: [
+                  _buildCustomAppBar(context, unreadCount),
+                  Expanded(
+                    child: docs.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'You are all caught up! No new notifications.',
+                              style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 16),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: docs.length,
+                            itemBuilder: (context, index) {
+                              final data = docs[index].data() as Map<String, dynamic>;
+                              return _buildNotificationCard(data);
+                            },
+                          ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -106,13 +89,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF59168B).withValues(alpha: 0.3),
-            const Color(0xFF312C85).withValues(alpha: 0.3),
+            const Color(0xFF59168B).withAlpha(77),
+            const Color(0xFF312C85).withAlpha(77),
           ],
         ),
         border: Border(
           bottom: BorderSide(
-            color: const Color(0xFFAD46FF).withValues(alpha: 0.2),
+            color: const Color(0xFFAD46FF).withAlpha(51),
             width: 1.4,
           ),
         ),
@@ -126,10 +109,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             icon: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFF59168B).withValues(alpha: 0.3),
+                color: const Color(0xFF59168B).withAlpha(77),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: const Color(0xFFAD46FF).withValues(alpha: 0.3),
+                  color: const Color(0xFFAD46FF).withAlpha(77),
                   width: 1.4,
                 ),
               ),
@@ -166,7 +149,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget _buildNotificationCard(NotificationItem item) {
+  Widget _buildNotificationCard(Map<String, dynamic> data) {
+    final String title = data['title'] ?? 'No Title';
+    final String description = data['description'] ?? '';
+    final bool isUnread = data['isUnread'] ?? false;
+    final Timestamp? timestamp = data['timestamp'] as Timestamp?;
+    
+    String timeAgoStr = 'just now';
+    if (timestamp != null) {
+      timeAgoStr = timeago.format(timestamp.toDate(), locale: 'en_short');
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(16),
@@ -176,21 +169,21 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            const Color(0xFF59168B).withValues(alpha: 0.2),
-            const Color(0xFF312C85).withValues(alpha: 0.2),
+            const Color(0xFF59168B).withAlpha(51),
+            const Color(0xFF312C85).withAlpha(51),
           ],
         ),
         border: Border.all(
-          color: item.isUnread
-              ? const Color(0xFFAD46FF).withValues(alpha: 0.4)
-              : const Color(0xFFAD46FF).withValues(alpha: 0.1),
+          color: isUnread
+              ? const Color(0xFFAD46FF).withAlpha(102)
+              : const Color(0xFFAD46FF).withAlpha(26),
           width: 1.4,
         ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (item.isUnread)
+          if (isUnread)
             Padding(
               padding: const EdgeInsets.only(top: 6, right: 12),
               child: Container(
@@ -201,7 +194,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFFAD46FF).withValues(alpha: 0.5),
+                      color: const Color(0xFFAD46FF).withAlpha(128),
                       blurRadius: 4,
                       spreadRadius: 1,
                     ),
@@ -216,7 +209,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  item.title,
+                  title,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 14,
@@ -226,7 +219,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  item.description,
+                  description,
                   style: const TextStyle(
                     color: Color(0xFFC27AFF),
                     fontSize: 12,
@@ -236,7 +229,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  item.timeAgo,
+                  timeAgoStr,
                   style: const TextStyle(
                     color: Color(0xFF9810FA),
                     fontSize: 12,

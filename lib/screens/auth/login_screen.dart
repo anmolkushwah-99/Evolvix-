@@ -1,6 +1,9 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -12,6 +15,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -21,6 +25,79 @@ class _LoginScreenState extends State<LoginScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() => _isGoogleLoading = true);
+    try {
+      final googleSignIn = GoogleSignIn(
+        serverClientId: '613277586109-emt42fc6ttdf605d20duqmj9janahioe.apps.googleusercontent.com',
+      );
+      
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      
+      if (googleUser == null) {
+        setState(() => _isGoogleLoading = false);
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Trigger the standard signInWithCredential flow
+      final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      final User? user = userCredential.user;
+
+      if (user != null) {
+        // After a successful credential sign-in, check if this user has a document in the users Firestore collection
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        
+        if (!userDoc.exists) {
+          // The Rejection Logic: If the Firestore document does not exist
+          // sign them back out using both FirebaseAuth and GoogleSignIn
+          await FirebaseAuth.instance.signOut();
+          await googleSignIn.signOut();
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Account not found. Please go to the Sign Up page to create an account.'),
+                backgroundColor: Colors.redAccent,
+              ),
+            );
+          }
+          return;
+        }
+      }
+      
+      // The Success Logic: If the document does exist, route them to the Home screen as normal
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/dashboard');
+      }
+    } on PlatformException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Google Error: [${e.code}] ${e.message}'),
+            backgroundColor: Colors.redAccent,
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unexpected error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGoogleLoading = false);
+      }
+    }
   }
 
   Future<void> _login() async {
@@ -287,8 +364,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             ],
                           ),
                           const SizedBox(height: 24),
+                          // GOOGLE SIGN IN BUTTON
                           InkWell(
-                            onTap: () {},
+                            onTap: _isGoogleLoading ? null : _signInWithGoogle,
                             borderRadius: BorderRadius.circular(16),
                             child: Container(
                               width: double.infinity,
@@ -302,14 +380,35 @@ class _LoginScreenState extends State<LoginScreen> {
                                   width: 1.2,
                                 ),
                               ),
-                              child: const Text(
-                                'Continue with Google',
-                                style: TextStyle(
-                                  color: Color(0xFFDAB2FF),
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                              child: _isGoogleLoading
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Image.asset(
+                                          'assets/images/google_logo.png',
+                                          height: 24,
+                                          errorBuilder: (context, error, stackTrace) => 
+                                              const Icon(Icons.g_mobiledata, color: Colors.white, size: 24),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        const Text(
+                                          'Continue with Google',
+                                          style: TextStyle(
+                                            color: Color(0xFFDAB2FF),
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                             ),
                           ),
                         ],

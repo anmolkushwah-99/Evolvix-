@@ -1,38 +1,61 @@
-# 🏛 Evolvix Architecture
+# 🏗 Architecture Overview – Evolvix
 
-Evolvix follows a layered architecture to maintain a separation of concerns and ensure scalability.
-
----
-
-## 🎨 1. UI Layer (Presentation)
-The UI is built using **Flutter widgets** and follows a modular structure.
-
-- **Screens (`lib/screens/`)**: Full-page layouts such as `DashboardScreen`, `ProfileScreen`, and `StudyRoomScreen`.
-- **Widgets (`lib/widgets/`)**: Reusable UI components like `XPBar`, `GlassContainer`, and `AppBottomNav`.
-- **Theme (`lib/theme/`)**: Global styling including colors, typography, and button styles.
+Evolvix follows a simple and modular architecture to ensure clarity, scalability, and maintainability.
 
 ---
 
-## 🧠 2. Logic Layer (Business Logic)
-This layer handles the core functionality and rules of the gamified system.
+## 🔹 1. UI Layer (Presentation Layer)
 
-- **Task System**: Manages task creation, completion, and status tracking.
-- **XP & Leveling (`lib/services/progression_service.dart`)**: Calculates experience points earned from tasks and determines when a user levels up.
-- **Character Growth**: Connects user progression to virtual character evolution.
-- **Study Sessions**: Logic for Pomodoro timers and collaborative focus rooms.
+This layer handles everything the user interacts with.
+
+- Screens (Home, Character Creation, Dashboard, Profile)
+- Widgets and UI components
+- User inputs (adding tasks, completing tasks)
+
+👉 Purpose:
+To provide a clean, simple, and responsive user interface.
 
 ---
 
-## 💾 3. Data Layer (Persistence)
-Handles data storage and retrieval.
+## 🔹 2. Logic Layer (Business Logic)
 
-- **Local Storage**: Uses `path_provider` and file handling for quick access to user settings and offline task data.
-- **Cloud Integration**: Powered by **Firebase (Firestore & Auth)** for user accounts, real-time data sync, and multi-device support.
-- **Models (`lib/models/`)**: Data classes like `UserProgress` that define the structure of information used across the app.
+This layer manages the core functionality of the app.
+
+- Task management system (add, update, complete tasks)
+- XP and reward calculation
+- Character progression and leveling system
+- Validation and processing of user actions
+
+👉 Purpose:
+To process user actions and control app behavior.
+
+---
+
+## 🔹 3. Data Layer (Storage)
+
+This layer handles data storage and retrieval.
+
+- Stores tasks and user progress
+- Maintains XP, levels, and achievements
+- Uses local storage (can be extended to cloud in future)
+
+👉 Purpose:
+To persist user data and ensure continuity.
 
 ---
 
 ## 🔄 Data Flow
-1. **User Action**: Completes a task in the UI.
-2. **Logic Processing**: `ProgressionService` calculates XP and updates the user model.
-3. **Data Sync**: The updated progress is saved to Firestore and reflected back in the UI via state management.
+
+1. User interacts with UI (adds/completes task)  
+2. Logic layer processes the action  
+3. Data layer stores updates  
+4. UI updates with new progress and character growth  
+
+---
+
+## ✅ Summary
+
+The separation of UI, logic, and data ensures:
+- Better code organization  
+- Easier debugging  
+- Scalability for future features

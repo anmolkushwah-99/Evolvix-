@@ -1,10 +1,113 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 
-class EditProfileScreen extends StatelessWidget {
+class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
+
+  @override
+  State<EditProfileScreen> createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<EditProfileScreen> {
+  final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _bioController = TextEditingController();
+  File? _selectedImage;
+  final ImagePicker _picker = ImagePicker();
+  bool _isLoading = false;
+  String? _currentImageUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (doc.exists) {
+        final data = doc.data() as Map<String, dynamic>;
+        setState(() {
+          _usernameController.text = data['username'] ?? '';
+          _bioController.text = data['bio'] ?? '';
+          _currentImageUrl = data['profileImageUrl'];
+        });
+      }
+    }
+  }
+
+  Future<void> _pickImage() async {
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+    if (image != null) {
+      setState(() {
+        _selectedImage = File(image.path);
+      });
+    }
+  }
+
+  Future<String?> _uploadProfileImage(String uid) async {
+    if (_selectedImage == null) return null;
+
+    try {
+      final storageRef = FirebaseStorage.instance.ref().child('users/$uid/profile_pic.jpg');
+      await storageRef.putFile(_selectedImage!);
+      return await storageRef.getDownloadURL();
+    } catch (e) {
+      debugPrint('Error uploading image: $e');
+      throw Exception('Failed to upload image');
+    }
+  }
+
+  Future<void> _saveProfileChanges() async {
+    setState(() => _isLoading = true);
+
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) throw Exception('User not logged in');
+
+      // Step 1: Sequential Image Handling
+      String? downloadUrl;
+      if (_selectedImage != null) {
+        downloadUrl = await _uploadProfileImage(uid);
+      }
+
+      // Step 2: Firestore Update
+      final Map<String, dynamic> updateData = {
+        'username': _usernameController.text.trim(),
+        'bio': _bioController.text.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (downloadUrl != null) {
+        updateData['profileImageUrl'] = downloadUrl;
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(uid).update(updateData);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Profile updated successfully!'), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +135,10 @@ class EditProfileScreen extends StatelessWidget {
                       const SizedBox(height: 24),
                       _buildBioSection(),
                       const SizedBox(height: 32),
-                      _buildSaveButton(context),
+                      if (_isLoading)
+                        const CircularProgressIndicator(color: Color(0xFF9810FA))
+                      else
+                        _buildSaveButton(context),
                       const SizedBox(height: 24),
                       _buildDangerZone(context),
                     ],
@@ -96,28 +202,41 @@ class EditProfileScreen extends StatelessWidget {
       children: [
         Stack(
           children: [
-            Container(
-              width: 128,
-              height: 128,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF9810FA), Color(0xFF4F39F6)]),
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFAD46FF).withAlpha(128), width: 4),
+            InkWell(
+              onTap: _pickImage,
+              child: Container(
+                width: 128,
+                height: 128,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFF9810FA), Color(0xFF4F39F6)]),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFAD46FF).withValues(alpha: 0.5), width: 4),
+                  image: _selectedImage != null
+                      ? DecorationImage(image: FileImage(_selectedImage!), fit: BoxFit.cover)
+                      : (_currentImageUrl != null
+                          ? DecorationImage(image: NetworkImage(_currentImageUrl!), fit: BoxFit.cover)
+                          : null),
+                ),
+                alignment: Alignment.center,
+                child: (_selectedImage == null && _currentImageUrl == null)
+                    ? const Icon(Icons.person, size: 64, color: Colors.white70)
+                    : null,
               ),
-              alignment: Alignment.center,
-              child: const Icon(Icons.person, size: 64, color: Colors.white70),
             ),
             Positioned(
               right: 0,
               bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF9810FA), Color(0xFF4F39F6)]),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xFF1A0F2E), width: 4),
+              child: InkWell(
+                onTap: _pickImage,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFF9810FA), Color(0xFF4F39F6)]),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFF1A0F2E), width: 4),
+                  ),
+                  child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
                 ),
-                child: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
               ),
             ),
           ],
@@ -149,30 +268,22 @@ class EditProfileScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 24),
-          _buildTextField('Username', 'DragonSlayer'),
-          const SizedBox(height: 16),
-          _buildTextField('Email', 'dragon@evolvix.com'),
-          const SizedBox(height: 16),
-          _buildTextField('Phone', '+91 9876543211'),
-          const SizedBox(height: 16),
-          _buildTextField('Location', 'Ujjain, Madhya Pradesh'),
-          const SizedBox(height: 16),
-          _buildTextField('Birthdate', 'Select your birthday'),
+          _buildTextField('Username', _usernameController),
         ],
       ),
     );
   }
 
-  Widget _buildTextField(String label, String value) {
+  Widget _buildTextField(String label, TextEditingController controller) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 14, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         TextField(
+          controller: controller,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
-            hintText: value,
             hintStyle: TextStyle(color: const Color(0xFFC27AFF).withAlpha(128)),
             filled: true,
             fillColor: const Color(0xFF59168B).withAlpha(51),
@@ -202,6 +313,7 @@ class EditProfileScreen extends StatelessWidget {
           const Text('Bio', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
           TextField(
+            controller: _bioController,
             maxLines: 4,
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
@@ -212,11 +324,6 @@ class EditProfileScreen extends StatelessWidget {
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
             ),
           ),
-          const SizedBox(height: 8),
-          const Align(
-            alignment: Alignment.centerRight,
-            child: Text('108/250', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 12)),
-          ),
         ],
       ),
     );
@@ -224,7 +331,7 @@ class EditProfileScreen extends StatelessWidget {
 
   Widget _buildSaveButton(BuildContext context) {
     return InkWell(
-      onTap: () => Navigator.pop(context),
+      onTap: _saveProfileChanges,
       borderRadius: BorderRadius.circular(16),
       child: Container(
         width: double.infinity,
@@ -301,7 +408,6 @@ class EditProfileScreen extends StatelessWidget {
   }
 
   Future<void> _deleteAccount(BuildContext context) async {
-    // Show Loading: Show a CircularProgressIndicator while the deletion is processing.
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -315,23 +421,17 @@ class EditProfileScreen extends StatelessWidget {
       final uid = user?.uid;
 
       if (uid != null) {
-        // Delete Firestore Data: First, get the current user's UID.
-        // Delete their specific document from the users collection in Cloud Firestore so we don't leave orphaned data behind.
         await FirebaseFirestore.instance.collection('users').doc(uid).delete();
-
-        // Delete Auth Record: Call FirebaseAuth.instance.currentUser?.delete() to permanently remove their account from Firebase Authentication.
         await user?.delete();
       }
 
-      // Route on Success: If the deletion is successful, pop the dialog and use Navigator.pushAndRemoveUntil to send them all the way back to the LoginScreen, clearing the entire navigation history.
       if (context.mounted) {
-        Navigator.pop(context); // Pop loading dialog
+        Navigator.pop(context); 
         Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
       }
     } on FirebaseAuthException catch (e) {
       if (context.mounted) {
-        Navigator.pop(context); // Pop loading dialog
-        // Handle Security Errors (Crucial): Catch FirebaseAuthException specifically. If the error code is requires-recent-login, show a SnackBar telling the user: 'For security reasons, please log out and log back in before deleting your account.'
+        Navigator.pop(context); 
         if (e.code == 'requires-recent-login') {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -350,7 +450,7 @@ class EditProfileScreen extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        Navigator.pop(context); // Pop loading dialog
+        Navigator.pop(context); 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('An unexpected error occurred: $e'),

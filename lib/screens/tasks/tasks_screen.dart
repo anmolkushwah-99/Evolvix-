@@ -675,6 +675,7 @@ class _ProgressProofSheetState extends State<ProgressProofSheet> {
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
   ImageSource? _selectedSource;
+  String _progressText = '';
 
   // TODO: Phase 2 - Implement ML Kit or Gemini API for secure detailed image content verification here
   // (e.g., check if photo contains notes, specific objects, etc.). For now, we'll implement a basic check structure.
@@ -689,19 +690,16 @@ class _ProgressProofSheetState extends State<ProgressProofSheet> {
   }
 
   bool _isValidSubmission() {
-    // PART 2: Strict Anti-Cheat & Proof of Work Enforcement
+    bool hasImage = _selectedImage != null && _isImageContentValid(_selectedImage);
     
-    // 1. Multiline Text Validation
-    final text = _controller.text.trim();
+    final trimmedText = _progressText.trim().toLowerCase();
+    bool isLongEnough = trimmedText.length >= 20;
+    
     final words = widget.taskTitle.toLowerCase().split(' ');
-    // Must be >20 chars AND contain at least one significant keyword from title
-    bool containsKeyword = words.any((word) => word.length > 2 && text.toLowerCase().contains(word));
-    bool textValid = text.length > 20 && containsKeyword;
+    // Filter out short filler words from the title for a better keyword check
+    bool containsKeyword = words.any((word) => word.length > 2 && trimmedText.contains(word));
 
-    // 2. Mandatory Image Check
-    bool imageValid = _selectedImage != null && _isImageContentValid(_selectedImage);
-
-    return textValid && imageValid;
+    return hasImage && isLongEnough && containsKeyword;
   }
 
   Future<void> _pickOrCaptureImage(ImageSource source) async {
@@ -736,7 +734,9 @@ class _ProgressProofSheetState extends State<ProgressProofSheet> {
             TextField(
               controller: _controller,
               maxLines: 4,
-              onChanged: (_) => setState(() {}),
+              onChanged: (value) => setState(() {
+                _progressText = value;
+              }),
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 hintText: 'Progress Text (What did you do?)',
@@ -806,18 +806,18 @@ class _ProgressProofSheetState extends State<ProgressProofSheet> {
               ),
             const SizedBox(height: 24),
             if (!_isValidSubmission())
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8.0),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
                 child: Text(
-                  'Need 20+ chars, a keyword from title, and an image to unlock',
-                  style: TextStyle(color: Colors.red, fontSize: 12),
+                  'Debug: Image? ${_selectedImage != null} | Chars: ${_progressText.trim().length}/20 | Keyword? ${widget.taskTitle.toLowerCase().split(' ').any((word) => word.length > 2 && _progressText.toLowerCase().contains(word))}',
+                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
                 ),
               ),
             ElevatedButton(
               onPressed: _isValidSubmission()
                   ? () {
                       Navigator.pop(context);
-                      widget.onConfirm(_controller.text, true, _selectedSource, false);
+                      widget.onConfirm(_progressText, true, _selectedSource, false);
                     }
                   : null,
               style: ElevatedButton.styleFrom(

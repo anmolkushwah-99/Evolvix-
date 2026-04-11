@@ -1,6 +1,6 @@
 # 🤝 Contributing Guidelines
 
-Thank you for contributing to **Evolvix**!  
+Thank you for contributing to "Evolvix"!  
 These guidelines ensure smooth collaboration and maintain code quality.
 
 ---

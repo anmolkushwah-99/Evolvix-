@@ -14,30 +14,23 @@ class CreateTaskScreen extends StatefulWidget {
 class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String taskName = '';
   String selectedCategory = 'Study';
-  String _currentDifficulty = 'Easy';
-  int _currentXP = 10;
+  int _estimatedDurationMinutes = 60;
+  int _baseXp = 10;
   DateTime? deadline;
 
   final TextEditingController _taskNameController = TextEditingController();
 
-  void _calculateDifficultyAndXP(DateTime? selectedDeadline) {
-    if (selectedDeadline == null) return;
-    
-    final duration = selectedDeadline.difference(DateTime.now());
-    
+  void _onDurationSelected(int minutes) {
     setState(() {
-      if (duration.inMinutes <= 60) {
-        _currentDifficulty = 'Easy';
-        _currentXP = 10;
-      } else if (duration.inHours <= 2) {
-        _currentDifficulty = 'Medium';
-        _currentXP = 25;
-      } else if (duration.inHours <= 24) {
-        _currentDifficulty = 'Hard';
-        _currentXP = 50;
+      _estimatedDurationMinutes = minutes;
+      if (minutes <= 60) {
+        _baseXp = 10;
+      } else if (minutes == 120) {
+        _baseXp = 25;
+      } else if (minutes == 240) {
+        _baseXp = 50;
       } else {
-        _currentDifficulty = 'Epic';
-        _currentXP = 100;
+        _baseXp = 100;
       }
     });
   }
@@ -45,7 +38,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? pickedDate = await showDatePicker(
       context: context,
-      initialDate: deadline ?? DateTime.now(),
+      initialDate: deadline ?? DateTime.now().add(const Duration(minutes: 5)),
       firstDate: DateTime.now(),
       lastDate: DateTime(2101),
       builder: (context, child) {
@@ -91,7 +84,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         setState(() {
           deadline = newDeadline;
         });
-        _calculateDifficultyAndXP(newDeadline);
       }
     }
   }
@@ -103,9 +95,16 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Future<void> _createTask() async {
-    if (taskName.isEmpty) {
+    if (taskName.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a task name')),
+      );
+      return;
+    }
+
+    if (deadline == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please set a deadline for your task')),
       );
       return;
     }
@@ -120,13 +119,14 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             .add({
           'title': taskName,
           'category': selectedCategory,
-          'difficulty': _currentDifficulty,
-          'xpReward': _currentXP,
-          'dueDate': deadline != null ? Timestamp.fromDate(deadline!) : null,
+          'baseXp': _baseXp,
+          'estimatedDurationMinutes': _estimatedDurationMinutes,
+          'dueDate': Timestamp.fromDate(deadline!),
           'status': 'Pending',
           'progress': 0.0,
           'userId': user.uid,
           'createdAt': FieldValue.serverTimestamp(),
+          'startedAt': null, // Initialize as null
         });
 
         if (mounted) {
@@ -150,56 +150,66 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF0D051A),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context),
-              const SizedBox(height: 32),
-              _buildTaskPreview(),
-              const SizedBox(height: 32),
-              _buildInputField('Task Name', 'e.g., Study React for 2 hours'),
-              const SizedBox(height: 24),
-              _buildCategorySelection(),
-              const SizedBox(height: 24),
-              _buildDeadlineInput(context),
-              const SizedBox(height: 32),
-              _buildCreateButton(context),
-            ],
-          ),
+        child: Column(
+          children: [
+            _buildHeader(context),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildTaskPreview(),
+                    const SizedBox(height: 32),
+                    _buildInputField('Task Name', 'e.g., Study React for 2 hours'),
+                    const SizedBox(height: 24),
+                    _buildCategorySelection(),
+                    const SizedBox(height: 24),
+                    _buildDurationSelection(),
+                    const SizedBox(height: 24),
+                    _buildDeadlineInput(context),
+                    const SizedBox(height: 32),
+                    _buildCreateButton(context),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildHeader(BuildContext context) {
-    return Row(
-      children: [
-        IconButton(
-          onPressed: () => Navigator.pop(context),
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(),
-          icon: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF59168B).withAlpha(77),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withAlpha(26)),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () => Navigator.pop(context),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF59168B).withAlpha(77),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withAlpha(26)),
+              ),
+              child: const Icon(Icons.chevron_left, color: Color(0xFFDAB2FF)),
             ),
-            child: const Icon(Icons.chevron_left, color: Color(0xFFDAB2FF)),
           ),
-        ),
-        const SizedBox(width: 16),
-        const Text(
-          'Create New Task',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 30,
-            fontWeight: FontWeight.bold,
+          const SizedBox(width: 16),
+          const Text(
+            'Create New Task',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -207,35 +217,28 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     Color difficultyColor;
     List<Color> xpGradient;
 
-    switch (_currentDifficulty) {
-      case 'Easy':
-        difficultyColor = const Color(0xFF00C950);
-        xpGradient = [const Color(0xFF00C950), const Color(0xFF008F39)];
-        break;
-      case 'Medium':
-        difficultyColor = const Color(0xFFF0B100);
-        xpGradient = [const Color(0xFFF0B100), const Color(0xFFFF6900)];
-        break;
-      case 'Hard':
-        difficultyColor = const Color(0xFFFF4D4D);
-        xpGradient = [const Color(0xFFFF4D4D), const Color(0xFFCC0000)];
-        break;
-      case 'Epic':
-      default:
-        difficultyColor = const Color(0xFFAD46FF);
-        xpGradient = [const Color(0xFFAD46FF), const Color(0xFF7E22CE)];
-        break;
+    if (_baseXp <= 10) {
+      difficultyColor = const Color(0xFF00C950);
+      xpGradient = [const Color(0xFF00C950), const Color(0xFF008F39)];
+    } else if (_baseXp == 25) {
+      difficultyColor = const Color(0xFFF0B100);
+      xpGradient = [const Color(0xFFF0B100), const Color(0xFFFF6900)];
+    } else if (_baseXp == 50) {
+      difficultyColor = const Color(0xFFFF4D4D);
+      xpGradient = [const Color(0xFFFF4D4D), const Color(0xFFCC0000)];
+    } else {
+      difficultyColor = const Color(0xFFAD46FF);
+      xpGradient = [const Color(0xFFAD46FF), const Color(0xFF7E22CE)];
     }
 
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFF1A0F2E),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withAlpha(26)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Expanded(
             child: Column(
@@ -243,50 +246,64 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               children: [
                 Text(
                   taskName.isEmpty ? 'Your task Name' : taskName,
-                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w500),
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 8),
-                Row(
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2B7FFF).withAlpha(51),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(selectedCategory, style: const TextStyle(color: Color(0xFF51A2FF), fontSize: 14)),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: difficultyColor.withAlpha(51),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(_currentDifficulty, style: TextStyle(color: difficultyColor, fontSize: 14)),
+                    _previewBadge(selectedCategory, const Color(0xFF2B7FFF).withAlpha(51), const Color(0xFF51A2FF)),
+                    _previewBadge(
+                      _baseXp == 100 ? 'Epic' : _baseXp >= 50 ? 'Hard' : _baseXp >= 25 ? 'Medium' : 'Easy',
+                      difficultyColor.withAlpha(51),
+                      difficultyColor,
                     ),
                   ],
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 12),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               gradient: LinearGradient(colors: xpGradient),
               borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: xpGradient[0].withAlpha(80),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                )
+              ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(Icons.bolt, color: Colors.white, size: 16),
                 const SizedBox(width: 4),
-                Text('+$_currentXP XP', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                Text('+$_baseXp XP', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _previewBadge(String label, Color bgColor, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(color: textColor, fontSize: 11, fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -371,6 +388,42 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
   }
 
+  Widget _buildDurationSelection() {
+    final durations = [
+      {'label': '30 min', 'minutes': 30},
+      {'label': '1 hour', 'minutes': 60},
+      {'label': '2 hours', 'minutes': 120},
+      {'label': '4 hours', 'minutes': 240},
+      {'label': '1 day+', 'minutes': 1440},
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Estimated Duration', style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 16, fontWeight: FontWeight.w500)),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: durations.map((d) {
+              bool isSelected = _estimatedDurationMinutes == d['minutes'];
+              return Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: ChoiceChip(
+                  label: Text(d['label'] as String),
+                  selected: isSelected,
+                  onSelected: (_) => _onDurationSelected(d['minutes'] as int),
+                  selectedColor: AppColors.primary,
+                  backgroundColor: const Color(0xFF1A0F2E),
+                  labelStyle: TextStyle(color: isSelected ? Colors.white : const Color(0xFFDAB2FF)),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildDeadlineInput(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -387,12 +440,18 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white.withAlpha(26)),
             ),
-            child: Text(
-              deadline == null ? 'Select date and time' : DateFormat('MMM d, h:mm a').format(deadline!),
-              style: TextStyle(
-                color: deadline == null ? const Color(0xFFAD46FF).withAlpha(128) : Colors.white,
-                fontSize: 16,
-              ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  deadline == null ? 'Set task deadline' : DateFormat('MMM d, h:mm a').format(deadline!),
+                  style: TextStyle(
+                    color: deadline == null ? const Color(0xFFAD46FF).withAlpha(128) : Colors.white,
+                    fontSize: 16,
+                  ),
+                ),
+                const Icon(Icons.calendar_month, color: Color(0xFFC27AFF), size: 20),
+              ],
             ),
           ),
         ),

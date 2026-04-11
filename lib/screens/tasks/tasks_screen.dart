@@ -14,7 +14,10 @@ class Task {
   final String status; // 'In Progress', 'Pending', 'Completed'
   final DateTime dueDate;
   final double progress;
-  final int xpReward;
+  final int baseXp;
+  final int estimatedDurationMinutes;
+  final DateTime createdAt;
+  final DateTime? startedAt;
 
   Task({
     required this.id,
@@ -24,7 +27,10 @@ class Task {
     required this.status,
     required this.dueDate,
     required this.progress,
-    required this.xpReward,
+    required this.baseXp,
+    required this.estimatedDurationMinutes,
+    required this.createdAt,
+    this.startedAt,
   });
 
   factory Task.fromFirestore(DocumentSnapshot doc) {
@@ -37,7 +43,10 @@ class Task {
       status: data['status'] ?? 'Pending',
       dueDate: (data['dueDate'] as Timestamp?)?.toDate() ?? DateTime.now(),
       progress: (data['progress'] ?? 0.0).toDouble(),
-      xpReward: data['xpReward'] ?? 0,
+      baseXp: data['baseXp'] ?? 0,
+      estimatedDurationMinutes: data['estimatedDurationMinutes'] ?? 0,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      startedAt: (data['startedAt'] as Timestamp?)?.toDate(),
     );
   }
 }
@@ -51,6 +60,269 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   String selectedFilter = 'All';
+
+  Future<void> _completeTaskAndAwardXP(
+    DocumentSnapshot taskDoc, {
+    String completionNote = '',
+    bool hasPhotoProof = false,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final data = taskDoc.data() as Map<String, dynamic>;
+    final String title = data['title'] ?? 'Task';
+    final String category = data['category'] ?? 'General';
+    final int estimatedDurationMinutes = data['estimatedDurationMinutes'] ?? 0;
+    final int baseXp = data['baseXp'] ?? 0;
+    final Timestamp? startedAtTs = data['startedAt'] as Timestamp?;
+
+    if (startedAtTs == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: Task was never started.')),
+      );
+      return;
+    }
+
+    final DateTime now = DateTime.now();
+    final DateTime startedAt = startedAtTs.toDate();
+    final int actualTimeMinutes = now.difference(startedAt).inMinutes;
+
+    double multiplier = 1.0;
+    bool isTooFast = false;
+
+    // --- Anti-Cheat Check 1: The 50% Time Rule ---
+    if (actualTimeMinutes < (estimatedDurationMinutes * 0.5)) {
+      multiplier = 0.0;
+      isTooFast = true;
+    }
+
+    // --- Anti-Cheat Check 2: Rapid-Fire Cooldown (Last 1 Hour) ---
+    final oneHourAgo = now.subtract(const Duration(hours: 1));
+    final recentTasksQuery = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('tasks')
+        .where('status', isEqualTo: 'Completed')
+        .where('completedAt', isGreaterThan: Timestamp.fromDate(oneHourAgo))
+        .get();
+    
+    if (recentTasksQuery.docs.length >= 5) {
+      multiplier *= 0.5;
+    }
+
+    // --- Anti-Cheat Check 3: Repetitive Spam Cap (Same Title Today) ---
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final sameTitleQuery = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('tasks')
+        .where('status', isEqualTo: 'Completed')
+        .where('title', isEqualTo: title)
+        .where('completedAt', isGreaterThan: Timestamp.fromDate(todayStart))
+        .get();
+    
+    bool isSpam = sameTitleQuery.docs.isNotEmpty;
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+        final userDoc = await transaction.get(userDocRef);
+        final userData = userDoc.data() as Map<String, dynamic>?;
+
+        // --- PART 1: Streak Logic ---
+        int currentStreak = userData?['currentStreak'] ?? 0;
+        Timestamp? lastTaskDateTs = userData?['lastTaskDate'];
+        
+        if (lastTaskDateTs == null) {
+          currentStreak = 1;
+        } else {
+          final lastDate = lastTaskDateTs.toDate();
+          final lastDateOnly = DateTime(lastDate.year, lastDate.month, lastDate.day);
+          final todayDateOnly = DateTime(now.year, now.month, now.day);
+          final difference = todayDateOnly.difference(lastDateOnly).inDays;
+
+          if (difference == 1) {
+            currentStreak += 1;
+          } else if (difference > 1) {
+            currentStreak = 1;
+          }
+          // if difference == 0 (today), keep streak same
+        }
+
+        // --- Streak Bonus ---
+        double streakBonus = 1.0;
+        if (currentStreak >= 7) {
+          streakBonus = 1.2;
+        } else if (currentStreak >= 3) {
+          streakBonus = 1.1;
+        }
+
+        // --- Calculate Final XP ---
+        int calculatedXp = (baseXp * multiplier * streakBonus).toInt();
+        
+        // Proof Bonus (+5 XP)
+        if (completionNote.isNotEmpty || hasPhotoProof) {
+          calculatedXp += 5;
+        }
+
+        // Spam Cap (Max 10 XP if same title today)
+        if (isSpam && calculatedXp > 10) {
+          calculatedXp = 10;
+        }
+
+        int currentTotalXp = userData?['totalXp'] ?? 0;
+        
+        transaction.update(userDocRef, {
+          'totalXp': currentTotalXp + calculatedXp,
+          'currentStreak': currentStreak,
+          'lastTaskDate': FieldValue.serverTimestamp(),
+        });
+
+        transaction.update(taskDoc.reference, {
+          'status': 'Completed',
+          'progress': 1.0,
+          'xpAwarded': calculatedXp,
+          'completedAt': FieldValue.serverTimestamp(),
+          'completionNote': completionNote,
+          'hasPhotoProof': hasPhotoProof,
+        });
+
+        // Add transaction record
+        final transactionRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('transactions')
+            .doc();
+        
+        transaction.set(transactionRef, {
+          'title': isTooFast ? 'Quest Completed (Fast)' : 'Quest Completed',
+          'subtitle': title,
+          'xpAmount': calculatedXp,
+          'timestamp': FieldValue.serverTimestamp(),
+          'category': category,
+          'type': 'earned',
+        });
+      });
+
+      if (mounted) {
+        if (isTooFast) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Task completed too fast! No base XP awarded. Keep your estimates realistic!'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Task Completed! + XP awarded.'), // Exact text not specified, following general success
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error completing task: $e')),
+        );
+      }
+    }
+  }
+
+  void _showCompletionSheet(DocumentSnapshot taskDoc) {
+    final TextEditingController noteController = TextEditingController();
+    bool hasPhotoProof = false;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A0F2E),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 24,
+                right: 24,
+                top: 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Almost done! (Optional)',
+                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: noteController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Add a completion note...',
+                      hintStyle: const TextStyle(color: Color(0xFF99A1AF)),
+                      filled: true,
+                      fillColor: const Color(0xFF0D051A),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () {
+                          setModalState(() {
+                            hasPhotoProof = !hasPhotoProof;
+                          });
+                        },
+                        icon: Icon(
+                          Icons.camera_alt,
+                          color: hasPhotoProof ? const Color(0xFF00C950) : const Color(0xFFC27AFF),
+                        ),
+                      ),
+                      Text(
+                        hasPhotoProof ? 'Photo proof added!' : 'Upload Proof',
+                        style: TextStyle(
+                          color: hasPhotoProof ? const Color(0xFF00C950) : const Color(0xFF99A1AF),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _completeTaskAndAwardXP(
+                        taskDoc,
+                        completionNote: noteController.text,
+                        hasPhotoProof: hasPhotoProof,
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF9810FA),
+                      minimumSize: const Size(double.infinity, 56),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: const Text('Confirm Completion', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -83,11 +355,12 @@ class _TasksScreenState extends State<TasksScreen> {
               }
 
               final docs = snapshot.data?.docs ?? [];
-              final allTasks = docs.map((doc) => Task.fromFirestore(doc)).toList();
               
-              if (allTasks.isEmpty) {
+              if (docs.isEmpty) {
                 return _buildEmptyState(context);
               }
+
+              final allTasks = docs.map((doc) => Task.fromFirestore(doc)).toList();
 
               List<Task> filteredTasks = selectedFilter == 'All'
                   ? allTasks
@@ -111,7 +384,7 @@ class _TasksScreenState extends State<TasksScreen> {
                           _buildStats(completedCount, inProgressCount, pendingCount),
                           const SizedBox(height: 24),
                           const Text(
-                            'Upcoming Quests',
+                            'Upcoming Tasks',
                             style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500),
                           ),
                           const SizedBox(height: 16),
@@ -126,9 +399,11 @@ class _TasksScreenState extends State<TasksScreen> {
                               physics: const NeverScrollableScrollPhysics(),
                               itemCount: filteredTasks.length,
                               itemBuilder: (context, index) {
+                                // Find the original document
+                                final doc = docs.firstWhere((d) => d.id == filteredTasks[index].id);
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12.0),
-                                  child: _buildTaskCard(filteredTasks[index]),
+                                  child: _buildTaskCard(filteredTasks[index], doc),
                                 );
                               },
                             ),
@@ -209,7 +484,7 @@ class _TasksScreenState extends State<TasksScreen> {
                   children: [
                     Icon(Icons.add, color: Colors.white),
                     SizedBox(width: 8),
-                    Text('Create New tasks', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                    const Text('Create New Task', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
                   ],
                 ),
               ),
@@ -286,7 +561,7 @@ class _TasksScreenState extends State<TasksScreen> {
     );
   }
 
-  Widget _buildTaskCard(Task task) {
+  Widget _buildTaskCard(Task task, DocumentSnapshot doc) {
     Color statusColor;
     switch (task.status) {
       case 'Completed':
@@ -302,20 +577,15 @@ class _TasksScreenState extends State<TasksScreen> {
     }
 
     Color difficultyColor;
-    switch (task.difficulty) {
-      case 'Hard':
-        difficultyColor = const Color(0xFFFB2C36);
-        break;
-      case 'Medium':
-        difficultyColor = const Color(0xFFFDC700);
-        break;
-      case 'Easy':
-      default:
-        difficultyColor = const Color(0xFF05DF72);
-        break;
+    if (task.baseXp >= 100) {
+      difficultyColor = const Color(0xFFAD46FF);
+    } else if (task.baseXp >= 50) {
+      difficultyColor = const Color(0xFFFB2C36);
+    } else if (task.baseXp >= 25) {
+      difficultyColor = const Color(0xFFFDC700);
+    } else {
+      difficultyColor = const Color(0xFF05DF72);
     }
-
-    final user = FirebaseAuth.instance.currentUser;
 
     return GlassContainer(
       padding: const EdgeInsets.all(16),
@@ -325,26 +595,29 @@ class _TasksScreenState extends State<TasksScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(task.title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w500)),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _buildBadge(task.category, AppColors.primary.withAlpha(51), AppColors.primary),
-                      const SizedBox(width: 8),
-                      _buildBadge(task.difficulty, difficultyColor.withAlpha(51), difficultyColor),
-                      const SizedBox(width: 8),
-                      _buildBadge(task.status, statusColor.withAlpha(51), statusColor),
-                    ],
-                  ),
-                ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(task.title, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w500)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _buildBadge(task.category, AppColors.primary.withAlpha(51), AppColors.primary),
+                        _buildBadge(task.difficulty, difficultyColor.withAlpha(51), difficultyColor),
+                        _buildBadge(task.status, statusColor.withAlpha(51), statusColor),
+                      ],
+                    ),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Row(
                 children: [
                   const Icon(Icons.bolt, color: Color(0xFFFDC700), size: 20),
-                  Text('+${task.xpReward}', style: const TextStyle(color: Color(0xFFFDC700), fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('+${task.baseXp}', style: const TextStyle(color: Color(0xFFFDC700), fontSize: 16, fontWeight: FontWeight.bold)),
                 ],
               ),
             ],
@@ -352,10 +625,17 @@ class _TasksScreenState extends State<TasksScreen> {
           const SizedBox(height: 16),
           Row(
             children: [
+              const Icon(Icons.timer, color: Color(0xFFDAB2FF), size: 14),
+              const SizedBox(width: 4),
+              Text(
+                'Est: ${task.estimatedDurationMinutes < 60 ? '${task.estimatedDurationMinutes}m' : '${task.estimatedDurationMinutes ~/ 60}h'}',
+                style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 14),
+              ),
+              const SizedBox(width: 16),
               const Icon(Icons.calendar_today, color: Color(0xFFDAB2FF), size: 14),
               const SizedBox(width: 4),
               Text(
-                'Due: ${DateFormat('MMM d, h:mm a').format(task.dueDate)}',
+                'Due: ${DateFormat('MMM d').format(task.dueDate)}',
                 style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 14),
               ),
             ],
@@ -375,19 +655,24 @@ class _TasksScreenState extends State<TasksScreen> {
             children: [
               Expanded(
                 child: ElevatedButton(
-                  onPressed: () {
-                    FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(user?.uid)
-                        .collection('tasks')
-                        .doc(task.id)
-                        .update({'status': 'In Progress'});
-                  },
+                  onPressed: task.status == 'Completed'
+                      ? null
+                      : () {
+                          if (task.status == 'Pending') {
+                            doc.reference.update({
+                              'status': 'In Progress',
+                              'startedAt': FieldValue.serverTimestamp(),
+                            });
+                          } else {
+                            _showCompletionSheet(doc);
+                          }
+                        },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF9810FA),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text('Continue', style: TextStyle(color: Colors.white)),
+                  child: Text(task.status == 'Pending' ? 'Start' : task.status == 'Completed' ? 'Done' : 'Complete',
+                      style: const TextStyle(color: Colors.white)),
                 ),
               ),
               const SizedBox(width: 8),
@@ -412,7 +697,7 @@ class _TasksScreenState extends State<TasksScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(10)),
-      child: Text(label, style: TextStyle(color: textColor, fontSize: 12)),
+      child: Text(label, style: TextStyle(color: textColor, fontSize: 11)),
     );
   }
 
@@ -426,7 +711,7 @@ class _TasksScreenState extends State<TasksScreen> {
       ),
       child: FractionallySizedBox(
         alignment: Alignment.centerLeft,
-        widthFactor: progress,
+        widthFactor: progress.clamp(0.0, 1.0),
         child: Container(
           decoration: BoxDecoration(
             gradient: const LinearGradient(

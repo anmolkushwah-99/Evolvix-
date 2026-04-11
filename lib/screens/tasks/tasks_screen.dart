@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/glass_container.dart';
 import '../../widgets/bottom_nav_bar.dart';
+import 'task_details_screen.dart';
 
 class Task {
   final String id;
@@ -61,12 +63,23 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   String selectedFilter = 'All';
-  final ImagePicker _picker = ImagePicker();
+
+  Future<void> _updateTaskProgress(DocumentSnapshot taskDoc) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final data = taskDoc.data() as Map<String, dynamic>;
+    String taskTitle = data['title'] ?? '';
+
+    _showProgressSheet(taskDoc, taskTitle);
+  }
 
   Future<void> _completeTaskAndAwardXP(
     DocumentSnapshot taskDoc, {
-    String completionNote = '',
-    bool hasPhotoProof = false,
+    required String progressText,
+    required bool hasImageProof,
+    ImageSource? source,
+    bool isAIValidated = false,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -76,43 +89,40 @@ class _TasksScreenState extends State<TasksScreen> {
     final String category = data['category'] ?? 'General';
     final int estimatedDurationMinutes = data['estimatedDurationMinutes'] ?? 0;
     final int baseXp = data['baseXp'] ?? 0;
-    final Timestamp? startedAtTs = data['startedAt'] as Timestamp?;
-
-    if (startedAtTs == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Error: Task was never started.')),
-      );
-      return;
-    }
+    final Timestamp createdAtTs = data['createdAt'] as Timestamp;
+    final double currentProgress = (data['progress'] ?? 0.0).toDouble();
 
     final DateTime now = DateTime.now();
-    final DateTime startedAt = startedAtTs.toDate();
-    final int actualTimeMinutes = now.difference(startedAt).inMinutes;
+    final DateTime createdAt = createdAtTs.toDate();
+    final int actualTimeMinutes = now.difference(createdAt).inMinutes;
+
+    double newProgress = currentProgress + 0.25;
+    if (newProgress > 1.0) newProgress = 1.0;
 
     double multiplier = 1.0;
     bool isTooFast = false;
 
-    // --- Anti-Cheat Check 1: The 50% Time Rule ---
-    if (actualTimeMinutes < (estimatedDurationMinutes * 0.5)) {
-      multiplier = 0.0;
-      isTooFast = true;
+    // Anti-Cheat Logic
+    if (newProgress >= 1.0) {
+      if (actualTimeMinutes < (estimatedDurationMinutes * 0.5)) {
+        multiplier = 0.0;
+        isTooFast = true;
+      }
+
+      final oneHourAgo = now.subtract(const Duration(hours: 1));
+      final recentTasksQuery = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('tasks')
+          .where('status', isEqualTo: 'Completed')
+          .where('completedAt', isGreaterThan: Timestamp.fromDate(oneHourAgo))
+          .get();
+      
+      if (recentTasksQuery.docs.length >= 5) {
+        multiplier *= 0.5;
+      }
     }
 
-    // --- Anti-Cheat Check 2: Rapid-Fire Cooldown (Last 1 Hour) ---
-    final oneHourAgo = now.subtract(const Duration(hours: 1));
-    final recentTasksQuery = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('tasks')
-        .where('status', isEqualTo: 'Completed')
-        .where('completedAt', isGreaterThan: Timestamp.fromDate(oneHourAgo))
-        .get();
-    
-    if (recentTasksQuery.docs.length >= 5) {
-      multiplier *= 0.5;
-    }
-
-    // --- Anti-Cheat Check 3: Repetitive Spam Cap (Same Title Today) ---
     final todayStart = DateTime(now.year, now.month, now.day);
     final sameTitleQuery = await FirebaseFirestore.instance
         .collection('users')
@@ -131,7 +141,6 @@ class _TasksScreenState extends State<TasksScreen> {
         final userDoc = await transaction.get(userDocRef);
         final userData = userDoc.data() as Map<String, dynamic>?;
 
-        // --- Streak Logic ---
         int currentStreak = userData?['currentStreak'] ?? 0;
         Timestamp? lastTaskDateTs = userData?['lastTaskDate'];
         
@@ -157,15 +166,14 @@ class _TasksScreenState extends State<TasksScreen> {
           streakBonus = 1.1;
         }
 
-        int calculatedXp = (baseXp * multiplier * streakBonus).toInt();
-        
-        if (completionNote.isNotEmpty || hasPhotoProof) {
-          calculatedXp += 5;
+        int calculatedXp = 0;
+        if (newProgress >= 1.0) {
+          calculatedXp = (baseXp * multiplier * streakBonus).toInt();
+          if (isSpam && calculatedXp > 10) calculatedXp = 10;
         }
 
-        if (isSpam && calculatedXp > 10) {
-          calculatedXp = 10;
-        }
+        // Mandatory Proof Bonus
+        calculatedXp += 5;
 
         int currentTotalXp = userData?['totalXp'] ?? 0;
         
@@ -176,70 +184,56 @@ class _TasksScreenState extends State<TasksScreen> {
         });
 
         transaction.update(taskDoc.reference, {
-          'status': 'Completed',
-          'progress': 1.0,
+          'status': newProgress >= 1.0 ? 'Completed' : 'In Progress',
+          'progress': newProgress,
           'xpAwarded': calculatedXp,
-          'completedAt': FieldValue.serverTimestamp(),
-          'completionNote': completionNote,
-          'hasPhotoProof': hasPhotoProof,
+          'completedAt': newProgress >= 1.0 ? FieldValue.serverTimestamp() : null,
+          'progressText': progressText,
+          'hasImageProof': hasImageProof,
+          'imageSource': source?.toString(),
+          'isAIValidated': isAIValidated,
+          'updatedAt': FieldValue.serverTimestamp(),
         });
 
-        final transactionRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('transactions')
-            .doc();
-        
-        transaction.set(transactionRef, {
-          'title': isTooFast ? 'Quest Completed (Fast)' : 'Quest Completed',
-          'subtitle': title,
-          'xpAmount': calculatedXp,
-          'timestamp': FieldValue.serverTimestamp(),
-          'category': category,
-          'type': 'earned',
-        });
+        if (calculatedXp > 0) {
+          final transactionRef = FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('transactions')
+              .doc();
+          
+          transaction.set(transactionRef, {
+            'title': (newProgress >= 1.0 && isTooFast) ? 'Quest Completed (Fast)' : 'Quest Progress/Completion',
+            'subtitle': title,
+            'xpAmount': calculatedXp,
+            'timestamp': FieldValue.serverTimestamp(),
+            'category': category,
+            'type': 'earned',
+          });
+        }
       });
 
       if (mounted) {
-        if (isTooFast) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Task completed too fast! No base XP awarded. Keep your estimates realistic!'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Task Completed! XP awarded.'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+        String message = newProgress >= 1.0 ? 'Task Completed!' : 'Progress Updated!';
+        if (isTooFast && newProgress >= 1.0) message += ' (No base XP for fast completion)';
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$message +XP Awarded!'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error completing task: $e')),
+          SnackBar(content: Text('Error updating task: $e')),
         );
       }
     }
   }
 
-  Future<bool> _takePhoto() async {
-    try {
-      final XFile? photo = await _picker.pickImage(source: ImageSource.camera);
-      return photo != null;
-    } catch (e) {
-      debugPrint("Error picking image: $e");
-      return false;
-    }
-  }
-
-  void _showCompletionSheet(DocumentSnapshot taskDoc) {
-    final TextEditingController noteController = TextEditingController();
-    bool hasPhotoProof = false;
-
+  void _showProgressSheet(DocumentSnapshot taskDoc, String taskTitle) {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1A0F2E),
@@ -248,84 +242,15 @@ class _TasksScreenState extends State<TasksScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-                left: 24,
-                right: 24,
-                top: 24,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Almost done! (Optional)',
-                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: noteController,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Add a completion note...',
-                      hintStyle: const TextStyle(color: Color(0xFF99A1AF)),
-                      filled: true,
-                      fillColor: const Color(0xFF0D051A),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      IconButton(
-                        onPressed: () async {
-                          bool success = await _takePhoto();
-                          if (success) {
-                            setModalState(() {
-                              hasPhotoProof = true;
-                            });
-                          }
-                        },
-                        icon: Icon(
-                          Icons.camera_alt,
-                          color: hasPhotoProof ? const Color(0xFF00C950) : const Color(0xFFC27AFF),
-                        ),
-                      ),
-                      Text(
-                        hasPhotoProof ? 'Photo proof added!' : 'Upload Proof',
-                        style: TextStyle(
-                          color: hasPhotoProof ? const Color(0xFF00C950) : const Color(0xFF99A1AF),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _completeTaskAndAwardXP(
-                        taskDoc,
-                        completionNote: noteController.text,
-                        hasPhotoProof: hasPhotoProof,
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF9810FA),
-                      minimumSize: const Size(double.infinity, 56),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    ),
-                    child: const Text('Confirm Completion', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-              ),
+        return ProgressProofSheet(
+          taskTitle: taskTitle,
+          onConfirm: (text, hasImage, source, isAI) {
+            _completeTaskAndAwardXP(
+              taskDoc,
+              progressText: text,
+              hasImageProof: hasImage,
+              source: source,
+              isAIValidated: isAI,
             );
           },
         );
@@ -666,27 +591,25 @@ class _TasksScreenState extends State<TasksScreen> {
                   onPressed: task.status == 'Completed'
                       ? null
                       : () {
-                          if (task.status == 'Pending') {
-                            doc.reference.update({
-                              'status': 'In Progress',
-                              'startedAt': FieldValue.serverTimestamp(),
-                            });
-                          } else {
-                            _showCompletionSheet(doc);
-                          }
+                          _updateTaskProgress(doc);
                         },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF9810FA),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: Text(task.status == 'Pending' ? 'Start' : task.status == 'Completed' ? 'Done' : 'Complete',
+                  child: Text(task.status == 'Completed' ? 'Done' : 'Continue',
                       style: const TextStyle(color: Colors.white)),
                 ),
               ),
               const SizedBox(width: 8),
               OutlinedButton(
                 onPressed: () {
-                  Navigator.pushNamed(context, '/task_details', arguments: task);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TaskDetailsScreen(taskId: doc.id),
+                    ),
+                  );
                 },
                 style: OutlinedButton.styleFrom(
                   side: BorderSide(color: Colors.white.withAlpha(26)),
@@ -727,6 +650,194 @@ class _TasksScreenState extends State<TasksScreen> {
             ),
             borderRadius: BorderRadius.circular(4),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class ProgressProofSheet extends StatefulWidget {
+  final String taskTitle;
+  final Function(String text, bool hasImage, ImageSource? source, bool isAIValidated) onConfirm;
+
+  const ProgressProofSheet({
+    super.key,
+    required this.taskTitle,
+    required this.onConfirm,
+  });
+
+  @override
+  State<ProgressProofSheet> createState() => _ProgressProofSheetState();
+}
+
+class _ProgressProofSheetState extends State<ProgressProofSheet> {
+  final TextEditingController _controller = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
+  XFile? _selectedImage;
+  ImageSource? _selectedSource;
+
+  // TODO: Phase 2 - Implement ML Kit or Gemini API for secure detailed image content verification here
+  // (e.g., check if photo contains notes, specific objects, etc.). For now, we'll implement a basic check structure.
+  bool _isImageContentValid(XFile? image) {
+    if (image == null) return false;
+    // THIS LOCAL CHECK IS NOT SECURE.
+    // Basic local check: e.g. check if filename contains 'notes' (case-insensitive)
+    // or just return true for now as a structure for AI analysis.
+    String fileName = image.name.toLowerCase();
+    bool containsNotes = fileName.contains('notes') || fileName.contains('image'); 
+    return containsNotes || true; // Returning true to allow submission in current phase
+  }
+
+  bool _isValidSubmission() {
+    // PART 2: Strict Anti-Cheat & Proof of Work Enforcement
+    
+    // 1. Multiline Text Validation
+    final text = _controller.text.trim();
+    final words = widget.taskTitle.toLowerCase().split(' ');
+    // Must be >20 chars AND contain at least one significant keyword from title
+    bool containsKeyword = words.any((word) => word.length > 2 && text.toLowerCase().contains(word));
+    bool textValid = text.length > 20 && containsKeyword;
+
+    // 2. Mandatory Image Check
+    bool imageValid = _selectedImage != null && _isImageContentValid(_selectedImage);
+
+    return textValid && imageValid;
+  }
+
+  Future<void> _pickOrCaptureImage(ImageSource source) async {
+    final XFile? image = await _picker.pickImage(source: source);
+    if (image != null) {
+      setState(() {
+        _selectedImage = image;
+        _selectedSource = source;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+        left: 16,
+        right: 16,
+        top: 16,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Proof of Work',
+              style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _controller,
+              maxLines: 4,
+              onChanged: (_) => setState(() {}),
+              style: const TextStyle(color: Colors.white),
+              decoration: InputDecoration(
+                hintText: 'Progress Text (What did you do?)',
+                hintStyle: const TextStyle(color: Color(0xFF99A1AF)),
+                filled: true,
+                fillColor: const Color(0xFF0D051A),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Image Submission (Mandatory)', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _pickOrCaptureImage(ImageSource.gallery),
+                    icon: const Icon(Icons.photo_library, size: 18),
+                    label: const Text('Gallery', style: TextStyle(fontSize: 12)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _selectedSource == ImageSource.gallery ? const Color(0xFF9810FA) : const Color(0xFF1A0F2E),
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Color(0xFFC27AFF)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _pickOrCaptureImage(ImageSource.camera),
+                    icon: const Icon(Icons.camera_alt, size: 18),
+                    label: const Text('Camera', style: TextStyle(fontSize: 12)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: _selectedSource == ImageSource.camera ? const Color(0xFF9810FA) : const Color(0xFF1A0F2E),
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Color(0xFFC27AFF)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (_selectedImage != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 16.0),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(_selectedImage!.path),
+                        width: 50,
+                        height: 50,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text('Image Attached!', style: TextStyle(color: Color(0xFF00C950), fontSize: 14)),
+                    const Spacer(),
+                    IconButton(onPressed: () => setState(() { _selectedImage = null; _selectedSource = null; }), icon: const Icon(Icons.close, color: Colors.red, size: 20)),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 24),
+            if (!_isValidSubmission())
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8.0),
+                child: Text(
+                  'Need 20+ chars, a keyword from title, and an image to unlock',
+                  style: TextStyle(color: Colors.red, fontSize: 12),
+                ),
+              ),
+            ElevatedButton(
+              onPressed: _isValidSubmission()
+                  ? () {
+                      Navigator.pop(context);
+                      widget.onConfirm(_controller.text, true, _selectedSource, false);
+                    }
+                  : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF9810FA),
+                minimumSize: const Size(double.infinity, 56),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                disabledBackgroundColor: Colors.white.withValues(alpha: 0.1),
+              ),
+              child: const Text('Submit Progress', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 12),
+            const Center(
+              child: Text(
+                'Required: Upload a photo or write a detailed description to earn XP.',
+                style: TextStyle(color: Color(0xFF99A1AF), fontSize: 11),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
         ),
       ),
     );

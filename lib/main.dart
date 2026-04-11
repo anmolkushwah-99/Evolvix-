@@ -9,6 +9,7 @@ import 'screens/auth/character_creation_screen.dart';
 import 'screens/dashboard/dashboard_screen.dart';
 import 'screens/tasks/tasks_screen.dart';
 import 'screens/tasks/create_task_screen.dart';
+import 'screens/tasks/task_details_screen.dart';
 import 'screens/study/study_screen.dart';
 import 'screens/study/study_room_screen.dart';
 import 'screens/rewards/rewards_screen.dart';
@@ -69,7 +70,10 @@ class EvolvixApp extends StatelessWidget {
         '/settings': (context) => const SettingsScreen(),
         '/leaderboard': (context) => const LeaderboardScreen(),
         '/notifications': (context) => const NotificationsScreen(),
-        '/task_details': (context) => const Scaffold(body: Center(child: Text('Task Details Screen'))),
+        '/task_details': (context) {
+          final taskId = ModalRoute.of(context)?.settings.arguments as String? ?? '';
+          return TaskDetailsScreen(taskId: taskId);
+        },
       },
     );
   }

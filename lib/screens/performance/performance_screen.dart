@@ -315,6 +315,7 @@ class PerformanceScreen extends StatelessWidget {
 
   Widget _buildProjectEvolution() {
     return Container(
+      clipBehavior: Clip.hardEdge,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: const Color(0xFF101828).withValues(alpha: 0.5),
@@ -324,13 +325,22 @@ class PerformanceScreen extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Project Evolution', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-              Text('Current status', style: TextStyle(color: Color(0xFF99A1AF), fontSize: 14)),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'Project Evolution',
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                Text(
+                  'Current status',
+                  style: TextStyle(color: Color(0xFF99A1AF), fontSize: 14),
+                ),
+              ],
+            ),
           ),
+          const SizedBox(width: 16),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(color: const Color(0xFF00C950), borderRadius: BorderRadius.circular(20)),

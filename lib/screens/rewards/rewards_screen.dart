@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/glass_container.dart';
 import '../../widgets/bottom_nav_bar.dart';
@@ -7,8 +9,86 @@ import 'reward_history_screen.dart';
 class RewardsScreen extends StatelessWidget {
   const RewardsScreen({super.key});
 
+  Future<void> _processTransaction(BuildContext context, String title, int cost) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDocRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+
+    try {
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final userDoc = await transaction.get(userDocRef);
+        if (!userDoc.exists) throw Exception("User document does not exist!");
+
+        final int currentXp = userDoc.get('totalXp') ?? 0;
+
+        if (currentXp < cost) {
+          throw Exception("Not enough XP! Keep grinding.");
+        }
+
+        // Deduct XP
+        transaction.update(userDocRef, {'totalXp': currentXp - cost});
+
+        // Save Receipt to history
+        final historyRef = userDocRef.collection('reward_history').doc();
+        transaction.set(historyRef, {
+          'title': title,
+          'xpChange': -cost,
+          'type': 'purchase',
+          'timestamp': FieldValue.serverTimestamp(),
+        });
+      });
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Successfully redeemed $title!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showRedemptionDialog(BuildContext context, String title, int cost) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A0F2E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Confirm Redemption', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: Text(
+          'Are you sure you want to spend $cost XP to unlock $title?',
+          style: const TextStyle(color: Color(0xFFDAB2FF)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFFC27AFF))),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _processTransaction(context, title, cost);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF9810FA),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Redeem', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -21,7 +101,7 @@ class RewardsScreen extends StatelessWidget {
         child: SafeArea(
           child: Column(
             children: [
-              _buildHeader(context),
+              _buildHeader(context, user?.uid),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
@@ -29,23 +109,7 @@ class RewardsScreen extends StatelessWidget {
                     children: [
                       _buildTabs(context),
                       const SizedBox(height: 24),
-                      _buildSection('BGMI: Online Multiplayer Game', [
-                        _buildRewardItem('5UC', '100 XP', Colors.blueGrey),
-                        _buildRewardItem('10 UC', '200 XP', Colors.blueGrey),
-                        _buildRewardItem('35UC', '700 XP', Colors.orange),
-                      ]),
-                      const SizedBox(height: 24),
-                      _buildSection('Google Play Credit', [
-                        _buildRewardItem('₹5 Credit', '100 XP', Colors.red),
-                        _buildRewardItem('₹10 Credit', '200 XP', Colors.orange),
-                        _buildRewardItem('₹25 Credit', '500 XP', Colors.green),
-                      ]),
-                      const SizedBox(height: 24),
-                      _buildSection('E-commerce Coupons', [
-                        _buildRewardItem('\$10 Amazon', '600 XP', Colors.orange),
-                        _buildRewardItem('₹500 Myntra', '1500 XP', Colors.pink),
-                        _buildRewardItem('₹250 Flipkart', '900 XP', Colors.blue),
-                      ]),
+                      _buildRewardCatalog(context),
                       const SizedBox(height: 24),
                       _buildHowToEarn(),
                     ],
@@ -60,7 +124,7 @@ class RewardsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, String? uid) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -82,32 +146,43 @@ class RewardsScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [const Color(0xFF59168B).withValues(alpha: 0.5), const Color(0xFF312C85).withValues(alpha: 0.5)]),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+            builder: (context, snapshot) {
+              String balance = '0';
+              if (snapshot.hasData && snapshot.data!.exists) {
+                final data = snapshot.data!.data() as Map<String, dynamic>;
+                balance = (data['totalXp'] ?? 0).toString();
+              }
+
+              return Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [const Color(0xFF59168B).withValues(alpha: 0.5), const Color(0xFF312C85).withValues(alpha: 0.5)]),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Your Balance', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
-                    Row(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.shield, color: Color(0xFFFDC700), size: 24),
-                        const SizedBox(width: 8),
-                        const Text('1200', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
-                        const Text(' XP', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 16)),
+                        const Text('Your Balance', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
+                        Row(
+                          children: [
+                            const Icon(Icons.shield, color: Color(0xFFFDC700), size: 24),
+                            const SizedBox(width: 8),
+                            Text(balance, style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
+                            const Text(' XP', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 16)),
+                          ],
+                        ),
                       ],
                     ),
                   ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ],
       ),
@@ -145,64 +220,139 @@ class RewardsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSection(String title, List<Widget> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildRewardCatalog(BuildContext context) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('store_rewards').orderBy('cost', descending: false).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: Color(0xFFC27AFF)));
+        }
+
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return const Center(child: Text('No rewards available', style: TextStyle(color: Colors.white)));
+        }
+
+        // Grouping Logic
+        Map<String, List<DocumentSnapshot>> groupedRewards = {};
+        for (var doc in snapshot.data!.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          String category = data['category'] ?? 'General';
+          if (!groupedRewards.containsKey(category)) {
+            groupedRewards[category] = [];
+          }
+          groupedRewards[category]!.add(doc);
+        }
+
+        List<String> categories = groupedRewards.keys.toList();
+
+        return ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: categories.length,
+          itemBuilder: (context, index) {
+            String category = categories[index];
+            List<DocumentSnapshot> rewards = groupedRewards[category]!;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildSectionHeader(category),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 160,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: rewards.length,
+                    itemBuilder: (context, rewardIndex) {
+                      final rewardData = rewards[rewardIndex].data() as Map<String, dynamic>;
+                      final String title = rewardData['title'] ?? rewardData['itemName'] ?? 'Reward';
+                      
+                      // Safe number parsing to fix the double/int crash
+                      final int cost = rewardData['cost'] != null ? (rewardData['cost'] as num).toInt() : 0;
+                      
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 16.0),
+                        child: _buildRewardItem(
+                          context,
+                          title,
+                          '$cost XP',
+                          _getCategoryColor(category),
+                          () => _showRedemptionDialog(context, title, cost),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Row(
       children: [
-        Row(
-          children: [
-            Container(
-              width: 36,
-              height: 40,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF00BBA7), Color(0xFF00B8DB)]),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: const Icon(Icons.card_giftcard, color: Colors.white, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))),
-          ],
+        Container(
+          width: 36,
+          height: 40,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF00BBA7), Color(0xFF00B8DB)]),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(Icons.card_giftcard, color: Colors.white, size: 20),
         ),
-        const SizedBox(height: 16),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: items,
-        ),
+        const SizedBox(width: 12),
+        Expanded(child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))),
       ],
     );
   }
 
-  Widget _buildRewardItem(String label, String xp, Color color) {
-    return Container(
-      width: 100,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [color.withValues(alpha: 0.6), color.withValues(alpha: 0.3)]),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(16)),
-            child: const Icon(Icons.redeem, color: Colors.white, size: 24),
-          ),
-          const SizedBox(height: 8),
-          Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.star, color: Color(0xFFBEDBFF), size: 12),
-              const SizedBox(width: 4),
-              Text(xp, style: const TextStyle(color: Color(0xFFBEDBFF), fontSize: 12, fontWeight: FontWeight.w500)),
-            ],
-          ),
-        ],
+  Widget _buildRewardItem(BuildContext context, String label, String xp, Color color, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 120,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [color.withValues(alpha: 0.6), color.withValues(alpha: 0.3)]),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(16)),
+              child: const Icon(Icons.redeem, color: Colors.white, size: 24),
+            ),
+            const SizedBox(height: 12),
+            Text(label, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.star, color: Color(0xFFBEDBFF), size: 12),
+                const SizedBox(width: 4),
+                Text(xp, style: const TextStyle(color: Color(0xFFBEDBFF), fontSize: 12, fontWeight: FontWeight.w500)),
+              ],
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  Color _getCategoryColor(String category) {
+    if (category.toLowerCase().contains('bgmi')) return Colors.blueGrey;
+    if (category.toLowerCase().contains('google')) return Colors.orange;
+    if (category.toLowerCase().contains('amazon')) return Colors.yellow.shade800;
+    if (category.toLowerCase().contains('myntra')) return Colors.pink;
+    return Colors.purple;
   }
 
   Widget _buildHowToEarn() {

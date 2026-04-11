@@ -14,34 +14,36 @@ class CreateTaskScreen extends StatefulWidget {
 class _CreateTaskScreenState extends State<CreateTaskScreen> {
   String taskName = '';
   String selectedCategory = 'Study';
-  String selectedDifficulty = 'Medium';
-  int xpReward = 25;
+  String _currentDifficulty = 'Easy';
+  int _currentXP = 10;
   DateTime? deadline;
 
   final TextEditingController _taskNameController = TextEditingController();
 
-  void _updateXpReward(String difficulty) {
+  void _calculateDifficultyAndXP(DateTime? selectedDeadline) {
+    if (selectedDeadline == null) return;
+    
+    final duration = selectedDeadline.difference(DateTime.now());
+    
     setState(() {
-      selectedDifficulty = difficulty;
-      switch (difficulty) {
-        case 'Easy':
-          xpReward = 10;
-          break;
-        case 'Medium':
-          xpReward = 25;
-          break;
-        case 'Hard':
-          xpReward = 50;
-          break;
-        case 'Epic':
-          xpReward = 100;
-          break;
+      if (duration.inMinutes <= 60) {
+        _currentDifficulty = 'Easy';
+        _currentXP = 10;
+      } else if (duration.inHours <= 2) {
+        _currentDifficulty = 'Medium';
+        _currentXP = 25;
+      } else if (duration.inHours <= 24) {
+        _currentDifficulty = 'Hard';
+        _currentXP = 50;
+      } else {
+        _currentDifficulty = 'Epic';
+        _currentXP = 100;
       }
     });
   }
 
   Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
+    final DateTime? pickedDate = await showDatePicker(
       context: context,
       initialDate: deadline ?? DateTime.now(),
       firstDate: DateTime.now(),
@@ -60,10 +62,37 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
         );
       },
     );
-    if (picked != null && picked != deadline) {
-      setState(() {
-        deadline = picked;
-      });
+
+    if (pickedDate != null) {
+      final TimeOfDay? pickedTime = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(deadline ?? DateTime.now()),
+        builder: (context, child) {
+          return Theme(
+            data: Theme.of(context).copyWith(
+              colorScheme: const ColorScheme.dark(
+                primary: AppColors.primary,
+                surface: Color(0xFF1A0F2E),
+              ),
+            ),
+            child: child!,
+          );
+        },
+      );
+
+      if (pickedTime != null) {
+        final newDeadline = DateTime(
+          pickedDate.year,
+          pickedDate.month,
+          pickedDate.day,
+          pickedTime.hour,
+          pickedTime.minute,
+        );
+        setState(() {
+          deadline = newDeadline;
+        });
+        _calculateDifficultyAndXP(newDeadline);
+      }
     }
   }
 
@@ -84,7 +113,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        // Write Logic: Using collection('users').doc(currentUser.uid).collection('tasks').add(...)
         await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
@@ -92,13 +120,12 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
             .add({
           'title': taskName,
           'category': selectedCategory,
-          'difficulty': selectedDifficulty,
-          'xpReward': xpReward,
+          'difficulty': _currentDifficulty,
+          'xpReward': _currentXP,
           'dueDate': deadline != null ? Timestamp.fromDate(deadline!) : null,
           'status': 'Pending',
           'progress': 0.0,
           'userId': user.uid,
-          // Ensuring createdAt: FieldValue.serverTimestamp() for proper sorting
           'createdAt': FieldValue.serverTimestamp(),
         });
 
@@ -135,8 +162,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               _buildInputField('Task Name', 'e.g., Study React for 2 hours'),
               const SizedBox(height: 24),
               _buildCategorySelection(),
-              const SizedBox(height: 24),
-              _buildDifficultySelection(),
               const SizedBox(height: 24),
               _buildDeadlineInput(context),
               const SizedBox(height: 32),
@@ -179,6 +204,29 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
   }
 
   Widget _buildTaskPreview() {
+    Color difficultyColor;
+    List<Color> xpGradient;
+
+    switch (_currentDifficulty) {
+      case 'Easy':
+        difficultyColor = const Color(0xFF00C950);
+        xpGradient = [const Color(0xFF00C950), const Color(0xFF008F39)];
+        break;
+      case 'Medium':
+        difficultyColor = const Color(0xFFF0B100);
+        xpGradient = [const Color(0xFFF0B100), const Color(0xFFFF6900)];
+        break;
+      case 'Hard':
+        difficultyColor = const Color(0xFFFF4D4D);
+        xpGradient = [const Color(0xFFFF4D4D), const Color(0xFFCC0000)];
+        break;
+      case 'Epic':
+      default:
+        difficultyColor = const Color(0xFFAD46FF);
+        xpGradient = [const Color(0xFFAD46FF), const Color(0xFF7E22CE)];
+        break;
+    }
+
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -199,13 +247,26 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2B7FFF).withAlpha(51),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(selectedCategory, style: const TextStyle(color: Color(0xFF51A2FF), fontSize: 14)),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2B7FFF).withAlpha(51),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(selectedCategory, style: const TextStyle(color: Color(0xFF51A2FF), fontSize: 14)),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: difficultyColor.withAlpha(51),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(_currentDifficulty, style: TextStyle(color: difficultyColor, fontSize: 14)),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -213,7 +274,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFFF0B100), Color(0xFFFF6900)]),
+              gradient: LinearGradient(colors: xpGradient),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -221,7 +282,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               children: [
                 const Icon(Icons.bolt, color: Colors.white, size: 16),
                 const SizedBox(width: 4),
-                Text('+$xpReward XP', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                Text('+$_currentXP XP', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -246,7 +307,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(color: Color(0xFFAD46FF), fontSize: 14),
+            hintStyle: TextStyle(color: const Color(0xFFAD46FF).withAlpha(128), fontSize: 14),
             filled: true,
             fillColor: const Color(0xFF1A0F2E),
             border: OutlineInputBorder(
@@ -310,55 +371,6 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
     );
   }
 
-  Widget _buildDifficultySelection() {
-    final levels = [
-      {'label': 'Easy', 'xp': '+10 XP'},
-      {'label': 'Medium', 'xp': '+25 XP'},
-      {'label': 'Hard', 'xp': '+50 XP'},
-      {'label': 'Epic', 'xp': '+100 XP'},
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Difficulty Level', style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 16, fontWeight: FontWeight.w500)),
-        const SizedBox(height: 12),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: levels.map((l) => _buildDifficultyCard(l['label']!, l['xp']!)).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDifficultyCard(String label, String xp) {
-    bool isSelected = selectedDifficulty == label;
-    return GestureDetector(
-      onTap: () => _updateXpReward(label),
-      child: Container(
-        width: 75,
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1A0F2E),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? AppColors.primary : Colors.white.withAlpha(26),
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          children: [
-            Text(
-              label,
-              style: TextStyle(color: isSelected ? Colors.white : const Color(0xFFC27AFF), fontSize: 14, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 4),
-            Text(xp, style: const TextStyle(color: Color(0xFFDAB2FF), fontSize: 10)),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildDeadlineInput(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -376,7 +388,7 @@ class _CreateTaskScreenState extends State<CreateTaskScreen> {
               border: Border.all(color: Colors.white.withAlpha(26)),
             ),
             child: Text(
-              deadline == null ? 'Select date and time' : DateFormat('MMM d, yyyy').format(deadline!),
+              deadline == null ? 'Select date and time' : DateFormat('MMM d, h:mm a').format(deadline!),
               style: TextStyle(
                 color: deadline == null ? const Color(0xFFAD46FF).withAlpha(128) : Colors.white,
                 fontSize: 16,

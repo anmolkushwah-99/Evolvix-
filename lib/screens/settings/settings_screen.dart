@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/constants/app_colors.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -96,22 +98,40 @@ class SettingsScreen extends StatelessWidget {
         children: [
           const Text('ACCOUNT DASHBOARD', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 12, letterSpacing: 0.3)),
           const SizedBox(height: 16),
-          Row(
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF9810FA), Color(0xFF4F39F6)]),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 2),
-                ),
-                alignment: Alignment.center,
-                child: const Text('👤', style: TextStyle(fontSize: 30)),
-              ),
-              const SizedBox(width: 16),
-              const Text('Alex Sterling', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600)),
-            ],
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').doc(FirebaseAuth.instance.currentUser?.uid).snapshots(),
+            builder: (context, snapshot) {
+              return Row(
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF9810FA), Color(0xFF4F39F6)]),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 2),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text('👤', style: TextStyle(fontSize: 30)),
+                  ),
+                  const SizedBox(width: 16),
+                  if (snapshot.hasError)
+                    const Text('Error loading profile', style: TextStyle(color: Colors.red, fontSize: 14))
+                  else if (snapshot.connectionState == ConnectionState.waiting)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFC27AFF)),
+                    )
+                  else
+                    Builder(builder: (context) {
+                      final data = snapshot.data?.data() as Map<String, dynamic>?;
+                      final String displayName = data?['name'] ?? 'Evolvix User';
+                      return Text(displayName, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600));
+                    }),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -130,16 +150,54 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Widget _buildNotificationSection() {
-    return _buildSectionContainer(
-      title: 'Notifications',
-      icon: Icons.notifications_none,
-      children: [
-        _buildSwitchItem('Push Notifications', 'Receive quest and achievement alerts', true),
-        _buildSwitchItem('Study Invites', 'Receive invitations to study rooms', true),
-        _buildSwitchItem('Email Digests', 'Weekly summary of your progress', false),
-        _buildSwitchItem('Achievement Alerts', 'Celebrate your milestones', true),
-      ],
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data() as Map<String, dynamic>?;
+        final settings = data?['notificationSettings'] as Map<String, dynamic>? ?? {};
+
+        return _buildSectionContainer(
+          title: 'Notifications',
+          icon: Icons.notifications_none,
+          children: [
+            _buildSwitchItem(
+              'Push Notifications',
+              'Receive quest and achievement alerts',
+              settings['pushEnabled'] ?? true,
+              (val) => _updateNotificationSetting('pushEnabled', val),
+            ),
+            _buildSwitchItem(
+              'Study Invites',
+              'Receive invitations to study rooms',
+              settings['invitesEnabled'] ?? true,
+              (val) => _updateNotificationSetting('invitesEnabled', val),
+            ),
+            _buildSwitchItem(
+              'Email Digests',
+              'Weekly summary of your progress',
+              settings['emailDigestsEnabled'] ?? false,
+              (val) => _updateNotificationSetting('emailDigestsEnabled', val),
+            ),
+            _buildSwitchItem(
+              'Achievement Alerts',
+              'Celebrate your milestones',
+              settings['achievementsEnabled'] ?? true,
+              (val) => _updateNotificationSetting('achievementsEnabled', val),
+            ),
+          ],
+        );
+      },
     );
+  }
+
+  Future<void> _updateNotificationSetting(String key, bool value) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    await FirebaseFirestore.instance.collection('users').doc(uid).set({
+      'notificationSettings': {key: value}
+    }, SetOptions(merge: true));
   }
 
   Widget _buildSupportSection() {
@@ -207,7 +265,7 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSwitchItem(String title, String subtitle, bool value) {
+  Widget _buildSwitchItem(String title, String subtitle, bool value, ValueChanged<bool> onChanged) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
       child: Row(
@@ -224,7 +282,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           Switch(
             value: value,
-            onChanged: (v) {},
+            onChanged: onChanged,
             activeColor: Colors.white,
             activeTrackColor: const Color(0xFF00C950),
           ),
@@ -291,7 +349,12 @@ class SettingsScreen extends StatelessWidget {
 
   Widget _buildSignOutButton(BuildContext context) {
     return ElevatedButton(
-      onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+      onPressed: () async {
+        await FirebaseAuth.instance.signOut();
+        if (context.mounted) {
+          Navigator.pushReplacementNamed(context, '/login');
+        }
+      },
       style: ElevatedButton.styleFrom(
         backgroundColor: const Color(0xFFFB2C36).withValues(alpha: 0.1),
         minimumSize: const Size(double.infinity, 56),

@@ -1,3 +1,4 @@
+/// Model class representing the user's progression data.
 class UserProgress {
   final String userId;
   int totalXp;
@@ -11,6 +12,7 @@ class UserProgress {
     this.unlockedRewards = const [],
   });
 
+  /// Converts the UserProgress object into a Map for storage (e.g., Firestore).
   Map<String, dynamic> toMap() {
     return {
       'userId': userId,
@@ -20,6 +22,7 @@ class UserProgress {
     };
   }
 
+  /// Creates a UserProgress object from a Map (e.g., data from Firestore).
   factory UserProgress.fromMap(Map<String, dynamic> map) {
     return UserProgress(
       userId: map['userId'] ?? '',

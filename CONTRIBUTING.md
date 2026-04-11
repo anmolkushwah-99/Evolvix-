@@ -1,22 +1,69 @@
-# Contributing to Evolvix
+# 🤝 Contributing Guidelines
 
-Thank you for your interest in contributing to Evolvix!
+Thank you for contributing to **Evolvix**!  
+These guidelines ensure smooth collaboration and maintain code quality.
 
-## Getting Started
+---
 
-1. Fork the repository.
-2. Clone your fork: `git clone https://github.com/your-username/evolvix.git`
-3. Create a branch: `git checkout -b feature/your-feature-name`
-4. Make your changes and commit them: `git commit -m 'Add some feature'`
-5. Push to the branch: `git push origin feature/your-feature-name`
-6. Open a pull request.
+## 🌿 Branching Strategy
 
-## Code of Conduct
+- `main` → Stable and production-ready code  
+- `feature/<name>` → New features or improvements  
 
-Please be respectful and helpful.
+### Example:
+- `feature/character-creation`
+- `feature/task-system`
 
-## Guidelines
+👉 Always create a new branch for your work. Do not commit directly to `main`.
 
-- Follow the Flutter style guide.
-- Write tests for new features.
-- Update the documentation as needed.
+---
+
+## 📝 Commit Message Guidelines
+
+- Use **clear and meaningful messages**
+- Write in **present tense**
+- Keep it short but descriptive
+
+### ✅ Good Examples:
+- Add character creation screen  
+- Implement XP reward system  
+- Fix task validation bug  
+
+### ❌ Avoid:
+- update  
+- fix  
+- changes  
+
+---
+
+## 🔀 Pull Request Process
+
+1. Create a feature branch  
+2. Make your changes and commit  
+3. Push the branch to GitHub  
+4. Open a Pull Request (PR)  
+5. Add a short description of your changes  
+6. Merge only after review (if applicable)  
+
+---
+
+## 👥 Team Contribution Rules
+
+- Each team member must contribute regularly  
+- Make small and frequent commits  
+- Ensure your code is working before pushing  
+- Avoid uploading unnecessary files  
+- Do not commit API keys, passwords, or sensitive data  
+
+---
+
+## ✅ General Guidelines
+
+- Keep code clean and readable  
+- Follow consistent formatting  
+- Add comments where necessary  
+- Test your changes before committing  
+
+---
+
+Thank you for contributing to **Evolvix** 🚀

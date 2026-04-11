@@ -64,3 +64,8 @@ Follow these steps to run the project on your system:
 
 ### Profile
 ![Profile](assets/profile.png)
+
+---
+
+## 🏗 Architecture Diagram
+![Architecture](docs/architecture.png)

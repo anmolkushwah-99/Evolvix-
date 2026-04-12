@@ -28,6 +28,7 @@ class DashboardScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Real-time User Header Stream
                 StreamBuilder<DocumentSnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('users')
@@ -35,19 +36,25 @@ class DashboardScreen extends StatelessWidget {
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: Padding(
-                        padding: EdgeInsets.all(40.0),
-                        child: CircularProgressIndicator(color: AppColors.primary),
-                      ));
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(40.0),
+                          child: CircularProgressIndicator(color: AppColors.primary),
+                        ),
+                      );
                     }
-                    if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
-                      return _buildHeader(context, 'User', 1, 0);
+                    
+                    if (snapshot.hasError) {
+                      return const Center(child: Text('Error loading header', style: TextStyle(color: Colors.red)));
                     }
-                    final userData = snapshot.data!.data() as Map<String, dynamic>;
-                    final String name = userData['username'] ?? userData['name'] ?? 'User';
-                    final int level = userData['level'] ?? 1;
-                    final int xp = userData['xp'] ?? 0;
-                    return _buildHeader(context, name, level, xp);
+
+                    // Extract data with safe defaults
+                    final userData = snapshot.data?.data() as Map<String, dynamic>?;
+                    final String name = userData?['username'] ?? userData?['name'] ?? 'User';
+                    final int currentLevel = userData?['level'] ?? 1;
+                    final int currentXp = userData?['totalXp'] ?? userData?['xp'] ?? 0;
+
+                    return _buildHeader(context, name, currentLevel, currentXp);
                   },
                 ),
                 Padding(
@@ -136,9 +143,10 @@ class DashboardScreen extends StatelessWidget {
   }
 
   Widget _buildHeader(BuildContext context, String name, int level, int xp) {
-    final int nextLevelXp = level * 100;
-    final double progress = xp / nextLevelXp;
-    final int xpRemaining = nextLevelXp - xp;
+    // Advanced Progress Logic
+    final int targetXp = level * 100;
+    final double progressPercent = (xp / targetXp).clamp(0.0, 1.0);
+    final int xpRemaining = targetXp - xp;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 32, 24, 32),
@@ -215,9 +223,9 @@ class DashboardScreen extends StatelessWidget {
           ),
           const SizedBox(height: 28),
           XPBar(
-            progress: progress.clamp(0.0, 1.0),
-            label: 'XP: $xp / $nextLevelXp',
-            trailing: '$xpRemaining to Level ${level + 1}',
+            progress: progressPercent,
+            label: 'XP: $xp / $targetXp',
+            trailing: '${xpRemaining > 0 ? xpRemaining : 0} to Level ${level + 1}',
           ),
         ],
       ),

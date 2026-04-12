@@ -1,9 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import '../../core/constants/app_colors.dart';
 
 class EditProfileScreen extends StatefulWidget {
@@ -16,6 +18,10 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _birthdateController = TextEditingController();
+  
   File? _selectedImage;
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = false;
@@ -27,6 +33,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     _loadUserData();
   }
 
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _bioController.dispose();
+    _phoneController.dispose();
+    _locationController.dispose();
+    _birthdateController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadUserData() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
@@ -36,6 +52,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         setState(() {
           _usernameController.text = data['username'] ?? '';
           _bioController.text = data['bio'] ?? '';
+          _phoneController.text = data['phone'] ?? '';
+          _locationController.text = data['location'] ?? '';
+          _birthdateController.text = data['birthdate'] ?? '';
           _currentImageUrl = data['profileImageUrl'];
         });
       }
@@ -64,6 +83,40 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     }
   }
 
+  Future<void> _selectBirthDate() async {
+    DateTime initialDate = DateTime.now().subtract(const Duration(days: 365 * 18));
+    if (_birthdateController.text.isNotEmpty) {
+      try {
+        initialDate = DateFormat('MMM dd, yyyy').parse(_birthdateController.text);
+      } catch (_) {}
+    }
+
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primary,
+              onPrimary: Colors.white,
+              surface: Color(0xFF1A0F2E),
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() {
+        _birthdateController.text = DateFormat('MMM dd, yyyy').format(picked);
+      });
+    }
+  }
+
   Future<void> _saveProfileChanges() async {
     setState(() => _isLoading = true);
 
@@ -81,6 +134,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       final Map<String, dynamic> updateData = {
         'username': _usernameController.text.trim(),
         'bio': _bioController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'location': _locationController.text.trim(),
+        'birthdate': _birthdateController.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -269,12 +325,29 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           ),
           const SizedBox(height: 24),
           _buildTextField('Username', _usernameController),
+          const SizedBox(height: 16),
+          _buildTextField(
+            'Phone',
+            _phoneController,
+            keyboardType: TextInputType.phone,
+            maxLength: 10,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          ),
+          const SizedBox(height: 16),
+          _buildTextField('Location', _locationController),
+          const SizedBox(height: 16),
+          _buildTextField('Birthdate', _birthdateController, readOnly: true, onTap: _selectBirthDate),
         ],
       ),
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller) {
+  Widget _buildTextField(String label, TextEditingController controller,
+      {TextInputType keyboardType = TextInputType.text,
+      bool readOnly = false,
+      VoidCallback? onTap,
+      int? maxLength,
+      List<TextInputFormatter>? inputFormatters}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -282,8 +355,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         const SizedBox(height: 8),
         TextField(
           controller: controller,
+          keyboardType: keyboardType,
+          readOnly: readOnly,
+          onTap: onTap,
+          maxLength: maxLength,
+          inputFormatters: inputFormatters,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
+            counterText: "", // Hide the character counter
             hintStyle: TextStyle(color: const Color(0xFFC27AFF).withAlpha(128)),
             filled: true,
             fillColor: const Color(0xFF59168B).withAlpha(51),

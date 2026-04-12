@@ -46,6 +46,7 @@ class RewardsScreen extends StatelessWidget {
       }
     } catch (e) {
       if (context.mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
         );
@@ -53,7 +54,22 @@ class RewardsScreen extends StatelessWidget {
     }
   }
 
-  void _showRedemptionDialog(BuildContext context, String title, int cost) {
+  void _showRedemptionDialog(BuildContext context, String title, int cost, int userXp) {
+    // 1. Instant Synchronous Check
+    if (userXp < cost) {
+      // 2. Clear the SnackBar Queue (CRITICAL)
+      ScaffoldMessenger.of(context).clearSnackBars();
+      
+      // 3. Show the Error
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Not enough XP! Keep grinding.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return; // Stops execution
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -89,42 +105,53 @@ class RewardsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF0A0118), Color(0xFF2A1544)],
-          ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              _buildHeader(context, user?.uid),
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      _buildTabs(context),
-                      const SizedBox(height: 24),
-                      _buildRewardCatalog(context),
-                      const SizedBox(height: 24),
-                      _buildHowToEarn(),
-                    ],
-                  ),
-                ),
+    return StreamBuilder<DocumentSnapshot>(
+      stream: FirebaseFirestore.instance.collection('users').doc(user?.uid).snapshots(),
+      builder: (context, userSnapshot) {
+        int currentXp = 0;
+        if (userSnapshot.hasData && userSnapshot.data!.exists) {
+          final data = userSnapshot.data!.data() as Map<String, dynamic>;
+          currentXp = (data['totalXp'] ?? 0) as int;
+        }
+
+        return Scaffold(
+          body: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF0A0118), Color(0xFF2A1544)],
               ),
-            ],
+            ),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  _buildHeader(context, currentXp),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        children: [
+                          _buildTabs(context),
+                          const SizedBox(height: 24),
+                          _buildRewardCatalog(context, currentXp),
+                          const SizedBox(height: 24),
+                          _buildHowToEarn(),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
-      bottomNavigationBar: const AppBottomNav(currentIndex: 3),
+          bottomNavigationBar: const AppBottomNav(currentIndex: 3),
+        );
+      },
     );
   }
 
-  Widget _buildHeader(BuildContext context, String? uid) {
+  Widget _buildHeader(BuildContext context, int currentXp) {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
@@ -146,43 +173,32 @@ class RewardsScreen extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
-            builder: (context, snapshot) {
-              String balance = '0';
-              if (snapshot.hasData && snapshot.data!.exists) {
-                final data = snapshot.data!.data() as Map<String, dynamic>;
-                balance = (data['totalXp'] ?? 0).toString();
-              }
-
-              return Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [const Color(0xFF59168B).withValues(alpha: 0.5), const Color(0xFF312C85).withValues(alpha: 0.5)]),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [const Color(0xFF59168B).withValues(alpha: 0.5), const Color(0xFF312C85).withValues(alpha: 0.5)]),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    const Text('Your Balance', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
+                    Row(
                       children: [
-                        const Text('Your Balance', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
-                        Row(
-                          children: [
-                            const Icon(Icons.shield, color: Color(0xFFFDC700), size: 24),
-                            const SizedBox(width: 8),
-                            Text(balance, style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
-                            const Text(' XP', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 16)),
-                          ],
-                        ),
+                        const Icon(Icons.shield, color: Color(0xFFFDC700), size: 24),
+                        const SizedBox(width: 8),
+                        Text(currentXp.toString(), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
+                        const Text(' XP', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 16)),
                       ],
                     ),
                   ],
                 ),
-              );
-            },
+              ],
+            ),
           ),
         ],
       ),
@@ -220,7 +236,7 @@ class RewardsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildRewardCatalog(BuildContext context) {
+  Widget _buildRewardCatalog(BuildContext context, int currentXp) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('store_rewards').orderBy('cost', descending: false).snapshots(),
       builder: (context, snapshot) {
@@ -277,7 +293,7 @@ class RewardsScreen extends StatelessWidget {
                           title,
                           '$cost XP',
                           _getCategoryColor(category),
-                          () => _showRedemptionDialog(context, title, cost),
+                          () => _showRedemptionDialog(context, title, cost, currentXp),
                         ),
                       );
                     },

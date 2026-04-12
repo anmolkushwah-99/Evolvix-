@@ -112,9 +112,12 @@ class _TasksScreenState extends State<TasksScreen> {
     // 3. Floating-Point Safe Math
     double newProgress = currentProgress + incrementAmount;
     String newStatus = 'In Progress';
+    bool isNewlyCompleted = false;
+
     if (newProgress >= 0.98) { // Safely catches 0.999999 math errors
       newProgress = 1.0;
       newStatus = 'Completed';
+      isNewlyCompleted = true;
     }
 
     // 4. Add the Math Debugger
@@ -128,7 +131,7 @@ class _TasksScreenState extends State<TasksScreen> {
     bool isTooFast = false;
 
     // Anti-Cheat Logic only for final completion
-    if (newStatus == 'Completed') {
+    if (isNewlyCompleted) {
       if (actualTimeMinutes < (estimatedDurationMinutes * 0.5)) {
         multiplier = 0.0;
         isTooFast = true;
@@ -192,7 +195,7 @@ class _TasksScreenState extends State<TasksScreen> {
         }
 
         int calculatedXp = 0;
-        if (newStatus == 'Completed') {
+        if (isNewlyCompleted) {
           calculatedXp = (baseXp * multiplier * streakBonus).toInt();
           if (isSpam && calculatedXp > 10) calculatedXp = 10;
         }
@@ -202,17 +205,24 @@ class _TasksScreenState extends State<TasksScreen> {
 
         int currentTotalXp = userData?['totalXp'] ?? 0;
         
-        transaction.update(userDocRef, {
+        // Prepare User Updates
+        Map<String, dynamic> userUpdates = {
           'totalXp': currentTotalXp + calculatedXp,
           'currentStreak': currentStreak,
           'lastTaskDate': FieldValue.serverTimestamp(),
-        });
+        };
+
+        if (isNewlyCompleted) {
+          userUpdates['tasksCompleted'] = FieldValue.increment(1);
+        }
+
+        transaction.update(userDocRef, userUpdates);
 
         transaction.update(taskDoc.reference, {
           'status': newStatus,
           'progress': newProgress,
           'xpAwarded': calculatedXp,
-          'completedAt': newStatus == 'Completed' ? FieldValue.serverTimestamp() : null,
+          'completedAt': isNewlyCompleted ? FieldValue.serverTimestamp() : null,
           'progressText': progressText,
           'hasImageProof': hasImageProof,
           'imageSource': source?.toString(),
@@ -228,7 +238,7 @@ class _TasksScreenState extends State<TasksScreen> {
               .doc();
           
           transaction.set(transactionRef, {
-            'title': (newStatus == 'Completed' && isTooFast) ? 'Quest Completed (Fast)' : 'Quest Progress/Completion',
+            'title': (isNewlyCompleted && isTooFast) ? 'Quest Completed (Fast)' : 'Quest Progress/Completion',
             'subtitle': title,
             'xpAmount': calculatedXp,
             'timestamp': FieldValue.serverTimestamp(),
@@ -239,8 +249,8 @@ class _TasksScreenState extends State<TasksScreen> {
       });
 
       if (mounted) {
-        String message = newStatus == 'Completed' ? 'Task Completed!' : 'Progress Updated!';
-        if (isTooFast && newStatus == 'Completed') message += ' (No base XP for fast completion)';
+        String message = isNewlyCompleted ? 'Task Completed!' : 'Progress Updated!';
+        if (isTooFast && isNewlyCompleted) message += ' (No base XP for fast completion)';
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -333,7 +343,6 @@ class _TasksScreenState extends State<TasksScreen> {
                       return task.progress >= 1.0 || task.status == 'Completed';
                     }).toList();
 
-                    // Sort by completedAt descending
                     completedTasks.sort((a, b) => (b.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(a.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
 
                     if (completedTasks.isEmpty) {
@@ -454,12 +463,10 @@ class _TasksScreenState extends State<TasksScreen> {
 
               final allTasks = docs.map((doc) => Task.fromFirestore(doc)).toList();
 
-              // Calculate stats from all tasks
               int completedCount = allTasks.where((t) => t.status == 'Completed').length;
               int inProgressCount = allTasks.where((t) => t.status == 'In Progress').length;
               int pendingCount = allTasks.where((t) => t.status == 'Pending').length;
 
-              // Filter for active (non-completed) tasks for the main list
               final activeTasks = allTasks.where((task) {
                 return task.status != 'Completed' && task.progress < 1.0;
               }).toList();

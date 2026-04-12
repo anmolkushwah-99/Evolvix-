@@ -61,7 +61,7 @@ class ProfileScreen extends StatelessWidget {
                         children: [
                           _buildProfileInfo(context, userData),
                           const SizedBox(height: 32),
-                          _buildStatsGrid(userData),
+                          _buildStatsGrid(context, userData),
                           const SizedBox(height: 32),
                           _buildRecentBadges(),
                           const SizedBox(height: 32),
@@ -239,12 +239,11 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatsGrid(Map<String, dynamic> userData) {
-    // Mapping Firestore fields to UI variables with default values
-    final String tasksCompleted = (userData['tasksCompleted'] ?? 0).toString();
+  Widget _buildStatsGrid(BuildContext context, Map<String, dynamic> userData) {
     final String levelsUnlocked = (userData['level'] ?? 1).toString();
     final String xpEarned = (userData['totalXp'] ?? 0).toString();
     final String streak = (userData['currentStreak'] ?? 0).toString();
+    final String uid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
     return GridView.count(
       shrinkWrap: true,
@@ -254,8 +253,27 @@ class ProfileScreen extends StatelessWidget {
       crossAxisSpacing: 16,
       childAspectRatio: 0.9,
       children: [
-        _buildStatCard(tasksCompleted, 'Tasks Completed', const Color(0xFFC27AFF),
-            Icons.check_circle_outline),
+        // Direct Task Stream for "Tasks Completed"
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(uid)
+              .collection('tasks')
+              .where('status', isEqualTo: 'Completed')
+              .snapshots(),
+          builder: (context, taskSnapshot) {
+            String count = '0';
+            if (taskSnapshot.connectionState == ConnectionState.waiting) {
+              return _buildStatCard('...', 'Tasks Completed', const Color(0xFFC27AFF),
+                  Icons.check_circle_outline);
+            }
+            if (taskSnapshot.hasData) {
+              count = taskSnapshot.data!.docs.length.toString();
+            }
+            return _buildStatCard(count, 'Tasks Completed', const Color(0xFFC27AFF),
+                Icons.check_circle_outline);
+          },
+        ),
         _buildStatCard(levelsUnlocked, 'Levels Unlocked', const Color(0xFF51A2FF),
             Icons.trending_up),
         _buildStatCard(xpEarned, 'XP Earned', const Color(0xFF05DF72),
@@ -290,9 +308,15 @@ class ProfileScreen extends StatelessWidget {
           ),
           const Spacer(),
           FittedBox(
-            child: Text(value,
-                style: TextStyle(
-                    color: color, fontSize: 28, fontWeight: FontWeight.bold)),
+            child: value == '...' 
+              ? const SizedBox(
+                  height: 28, 
+                  width: 28, 
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFC27AFF))
+                )
+              : Text(value,
+                  style: TextStyle(
+                      color: color, fontSize: 28, fontWeight: FontWeight.bold)),
           ),
           Text(label,
               style: const TextStyle(

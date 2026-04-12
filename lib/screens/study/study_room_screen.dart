@@ -16,9 +16,15 @@ class ActiveStudyRoomScreen extends StatefulWidget {
 class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
   // State Management (Tabs & Timer)
   int _currentTabIndex = 0;
-  int _secondsElapsed = 0;
+  final ValueNotifier<int> _timerNotifier = ValueNotifier<int>(0);
   Timer? _studyTimer;
   bool _isPlaying = false;
+
+  // Sticky Notes
+  final List<String> _stickyNotes = [];
+
+  // Whiteboard
+  List<Offset?> _points = [];
 
   // Auto-Saving Shared Notes
   final TextEditingController _notesController = TextEditingController();
@@ -63,9 +69,7 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
       _isPlaying = !_isPlaying;
       if (_isPlaying) {
         _studyTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-          setState(() {
-            _secondsElapsed++;
-          });
+          _timerNotifier.value++;
         });
       } else {
         _studyTimer?.cancel();
@@ -83,7 +87,6 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _chatController.text.trim().isEmpty) return;
 
-    // Fetch user name for the chat
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
     final senderName = userDoc.data()?['username'] ?? userDoc.data()?['name'] ?? 'User';
 
@@ -91,13 +94,12 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
     _chatController.clear();
 
     await FirebaseFirestore.instance
-        .collection('studyRooms')
-        .doc(widget.roomId)
-        .collection('messages')
+        .collection('study_room_chat')
         .add({
       'senderName': senderName,
       'senderId': user.uid,
-      'text': text,
+      'message': text,
+      'roomId': widget.roomId,
       'timestamp': FieldValue.serverTimestamp(),
     });
   }
@@ -111,6 +113,7 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
   @override
   void dispose() {
     _studyTimer?.cancel();
+    _timerNotifier.dispose();
     _notesController.removeListener(_onNotesChanged);
     _notesController.dispose();
     _debounce?.cancel();
@@ -233,7 +236,12 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
         children: [
           const Text('Focus Session', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
           const SizedBox(height: 8),
-          Text(_formatTime(_secondsElapsed), style: const TextStyle(color: Colors.white, fontSize: 60, fontWeight: FontWeight.bold)),
+          ValueListenableBuilder<int>(
+            valueListenable: _timerNotifier,
+            builder: (context, seconds, child) {
+              return Text(_formatTime(seconds), style: const TextStyle(color: Colors.white, fontSize: 60, fontWeight: FontWeight.bold));
+            },
+          ),
           const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -248,7 +256,7 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
               ),
               const SizedBox(width: 12),
               GestureDetector(
-                onTap: _pauseTimer, // Pauses timer
+                onTap: _pauseTimer,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
                   decoration: BoxDecoration(
@@ -305,56 +313,159 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
 
   Widget _buildWorkspaceArea() {
     return Container(
+      height: 350,
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       color: const Color(0xFF59168B).withAlpha(51),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (_currentTabIndex == 0)
-            TextField(
-              controller: _notesController,
-              maxLines: null,
-              style: const TextStyle(color: Color(0xFFF3E8FF), fontFamily: 'monospace'),
-              decoration: const InputDecoration(
-                hintText: 'Start typing your notes...',
-                hintStyle: TextStyle(color: Color(0xFFAD46FF)),
-                border: InputBorder.none,
+      child: _buildTabContent(),
+    );
+  }
+
+  Widget _buildTabContent() {
+    switch (_currentTabIndex) {
+      case 0:
+        return Column(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _notesController,
+                maxLines: null,
+                style: const TextStyle(color: Color(0xFFF3E8FF), fontFamily: 'monospace'),
+                decoration: const InputDecoration(
+                  hintText: 'Start typing your notes...',
+                  hintStyle: TextStyle(color: Color(0xFFAD46FF)),
+                  border: InputBorder.none,
+                ),
               ),
-            )
-          else
-            Container(
-              height: 150,
-              alignment: Alignment.center,
-              child: Text('Shared ${_getTabLabel(_currentTabIndex)}...', style: const TextStyle(color: Color(0xFFAD46FF))),
             ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.circle, color: Colors.green, size: 8),
-                  SizedBox(width: 4),
-                  Text('Saved automatically', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 12)),
-                ],
+            _buildWorkspaceFooter(),
+          ],
+        );
+      case 1:
+        return Stack(
+          children: [
+            GridView.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
               ),
-              Row(
-                children: [
-                  _buildMiniAvatar('👨'),
-                  _buildMiniAvatar('👩'),
-                ],
+              itemCount: _stickyNotes.length,
+              itemBuilder: (context, index) {
+                final colors = [Colors.yellow, Colors.pinkAccent, Colors.cyanAccent, Colors.orangeAccent];
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colors[index % colors.length].withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _stickyNotes[index],
+                    style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w500),
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: FloatingActionButton(
+                mini: true,
+                onPressed: _showAddStickyNoteDialog,
+                backgroundColor: const Color(0xFF9810FA),
+                child: const Icon(Icons.add, color: Colors.white),
               ),
-            ],
+            ),
+          ],
+        );
+      case 2:
+        return Stack(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: GestureDetector(
+                onPanUpdate: (details) {
+                  setState(() {
+                    RenderBox renderBox = context.findRenderObject() as RenderBox;
+                    _points.add(renderBox.globalToLocal(details.globalPosition));
+                  });
+                },
+                onPanEnd: (details) => setState(() => _points.add(null)),
+                child: CustomPaint(
+                  painter: WhiteboardPainter(points: _points),
+                  size: Size.infinite,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 10,
+              right: 10,
+              child: TextButton(
+                onPressed: () => setState(() => _points = []),
+                style: TextButton.styleFrom(backgroundColor: Colors.red.withOpacity(0.1)),
+                child: const Text('Clear', style: TextStyle(color: Colors.red)),
+              ),
+            ),
+          ],
+        );
+      default:
+        return const SizedBox();
+    }
+  }
+
+  void _showAddStickyNoteDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A0F2E),
+        title: const Text('Add Sticky Note', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Type something...',
+            hintStyle: TextStyle(color: Color(0xFFAD46FF)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              if (controller.text.isNotEmpty) {
+                setState(() => _stickyNotes.add(controller.text));
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Add'),
           ),
         ],
       ),
     );
   }
 
-  String _getTabLabel(int index) {
-    if (index == 1) return 'Sticky Notes';
-    if (index == 2) return 'Whiteboard';
-    return 'Notes';
+  Widget _buildWorkspaceFooter() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.circle, color: Colors.green, size: 8),
+            SizedBox(width: 4),
+            Text('Saved automatically', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 12)),
+          ],
+        ),
+        Row(
+          children: [
+            _buildMiniAvatar('👨'),
+            _buildMiniAvatar('👩'),
+          ],
+        ),
+      ],
+    );
   }
 
   Widget _buildMiniAvatar(String emoji) {
@@ -384,10 +495,9 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
           const SizedBox(height: 12),
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
-                .collection('studyRooms')
-                .doc(widget.roomId)
-                .collection('messages')
+                .collection('study_room_chat')
                 .orderBy('timestamp', descending: true)
+                .limit(50)
                 .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
@@ -405,7 +515,7 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
                   final time = timestamp != null ? DateFormat('HH:mm').format(timestamp.toDate()) : '';
                   return _buildChatMessage(
                     data['senderName'] ?? 'User',
-                    data['text'] ?? '',
+                    data['message'] ?? '',
                     time,
                   );
                 },
@@ -474,4 +584,26 @@ class _ActiveStudyRoomScreenState extends State<ActiveStudyRoomScreen> {
       ),
     );
   }
+}
+
+class WhiteboardPainter extends CustomPainter {
+  final List<Offset?> points;
+  WhiteboardPainter({required this.points});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    Paint paint = Paint()
+      ..color = Colors.black
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 3.0;
+
+    for (int i = 0; i < points.length - 1; i++) {
+      if (points[i] != null && points[i + 1] != null) {
+        canvas.drawLine(points[i]!, points[i + 1]!, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

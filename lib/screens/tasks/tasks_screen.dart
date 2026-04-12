@@ -21,6 +21,7 @@ class Task {
   final int estimatedDurationMinutes;
   final DateTime createdAt;
   final DateTime? startedAt;
+  final DateTime? completedAt;
 
   Task({
     required this.id,
@@ -34,6 +35,7 @@ class Task {
     required this.estimatedDurationMinutes,
     required this.createdAt,
     this.startedAt,
+    this.completedAt,
   });
 
   factory Task.fromFirestore(DocumentSnapshot doc) {
@@ -50,6 +52,7 @@ class Task {
       estimatedDurationMinutes: data['estimatedDurationMinutes'] ?? 0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       startedAt: (data['startedAt'] as Timestamp?)?.toDate(),
+      completedAt: (data['completedAt'] as Timestamp?)?.toDate(),
     );
   }
 }
@@ -90,20 +93,42 @@ class _TasksScreenState extends State<TasksScreen> {
     final int estimatedDurationMinutes = data['estimatedDurationMinutes'] ?? 0;
     final int baseXp = data['baseXp'] ?? 0;
     final Timestamp createdAtTs = data['createdAt'] as Timestamp;
-    final double currentProgress = (data['progress'] ?? 0.0).toDouble();
+    
+    // 1. Bulletproof Data Parsing
+    double currentProgress = double.tryParse(data['progress']?.toString() ?? '0.0') ?? 0.0;
+
+    // 2. Determine increment amount based on estimated duration
+    double incrementAmount = 1.0;
+    if (estimatedDurationMinutes <= 30) {
+      incrementAmount = 0.50; // Takes 2 submissions
+    } else if (estimatedDurationMinutes <= 120) {
+      incrementAmount = 0.34; // Takes 3 submissions
+    } else if (estimatedDurationMinutes <= 240) {
+      incrementAmount = 0.25; // Takes 4 submissions
+    } else if (estimatedDurationMinutes >= 1440) {
+      incrementAmount = 0.20; // Takes 5 submissions
+    }
+
+    // 3. Floating-Point Safe Math
+    double newProgress = currentProgress + incrementAmount;
+    String newStatus = 'In Progress';
+    if (newProgress >= 0.98) { // Safely catches 0.999999 math errors
+      newProgress = 1.0;
+      newStatus = 'Completed';
+    }
+
+    // 4. Add the Math Debugger
+    debugPrint('Math Check -> Old: $currentProgress + Increment: $incrementAmount = New: $newProgress | Status: $newStatus');
 
     final DateTime now = DateTime.now();
     final DateTime createdAt = createdAtTs.toDate();
     final int actualTimeMinutes = now.difference(createdAt).inMinutes;
 
-    double newProgress = currentProgress + 0.25;
-    if (newProgress > 1.0) newProgress = 1.0;
-
     double multiplier = 1.0;
     bool isTooFast = false;
 
-    // Anti-Cheat Logic
-    if (newProgress >= 1.0) {
+    // Anti-Cheat Logic only for final completion
+    if (newStatus == 'Completed') {
       if (actualTimeMinutes < (estimatedDurationMinutes * 0.5)) {
         multiplier = 0.0;
         isTooFast = true;
@@ -167,7 +192,7 @@ class _TasksScreenState extends State<TasksScreen> {
         }
 
         int calculatedXp = 0;
-        if (newProgress >= 1.0) {
+        if (newStatus == 'Completed') {
           calculatedXp = (baseXp * multiplier * streakBonus).toInt();
           if (isSpam && calculatedXp > 10) calculatedXp = 10;
         }
@@ -184,10 +209,10 @@ class _TasksScreenState extends State<TasksScreen> {
         });
 
         transaction.update(taskDoc.reference, {
-          'status': newProgress >= 1.0 ? 'Completed' : 'In Progress',
+          'status': newStatus,
           'progress': newProgress,
           'xpAwarded': calculatedXp,
-          'completedAt': newProgress >= 1.0 ? FieldValue.serverTimestamp() : null,
+          'completedAt': newStatus == 'Completed' ? FieldValue.serverTimestamp() : null,
           'progressText': progressText,
           'hasImageProof': hasImageProof,
           'imageSource': source?.toString(),
@@ -203,7 +228,7 @@ class _TasksScreenState extends State<TasksScreen> {
               .doc();
           
           transaction.set(transactionRef, {
-            'title': (newProgress >= 1.0 && isTooFast) ? 'Quest Completed (Fast)' : 'Quest Progress/Completion',
+            'title': (newStatus == 'Completed' && isTooFast) ? 'Quest Completed (Fast)' : 'Quest Progress/Completion',
             'subtitle': title,
             'xpAmount': calculatedXp,
             'timestamp': FieldValue.serverTimestamp(),
@@ -214,12 +239,12 @@ class _TasksScreenState extends State<TasksScreen> {
       });
 
       if (mounted) {
-        String message = newProgress >= 1.0 ? 'Task Completed!' : 'Progress Updated!';
-        if (isTooFast && newProgress >= 1.0) message += ' (No base XP for fast completion)';
+        String message = newStatus == 'Completed' ? 'Task Completed!' : 'Progress Updated!';
+        if (isTooFast && newStatus == 'Completed') message += ' (No base XP for fast completion)';
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('$message +XP Awarded!'),
+            content: Text('$message +$baseXp XP Potential Awarded!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -258,6 +283,138 @@ class _TasksScreenState extends State<TasksScreen> {
     );
   }
 
+  void _showTaskHistory() {
+    final user = FirebaseAuth.instance.currentUser;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0A0118),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.7,
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Task History',
+                    style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user?.uid)
+                      .collection('tasks')
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.white)));
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+                    }
+                    
+                    final docs = snapshot.data?.docs ?? [];
+                    debugPrint('Total docs fetched (History): ${docs.length}');
+
+                    final completedTasks = docs.map((doc) => Task.fromFirestore(doc)).where((task) {
+                      return task.progress >= 1.0 || task.status == 'Completed';
+                    }).toList();
+
+                    // Sort by completedAt descending
+                    completedTasks.sort((a, b) => (b.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(a.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0)));
+
+                    if (completedTasks.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'No completed tasks today yet. Get to work!',
+                          style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 16),
+                          textAlign: TextAlign.center,
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      itemCount: completedTasks.length,
+                      itemBuilder: (context, index) {
+                        return _buildCondensedTaskCard(completedTasks[index]);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCondensedTaskCard(Task task) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00C950).withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.check, color: Color(0xFF00C950), size: 16),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  task.title,
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  task.category,
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '+${task.baseXp} XP',
+                style: const TextStyle(color: Color(0xFFFDC700), fontWeight: FontWeight.bold),
+              ),
+              Text(
+                DateFormat('MMM d').format(task.dueDate),
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 10),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -289,6 +446,7 @@ class _TasksScreenState extends State<TasksScreen> {
               }
 
               final docs = snapshot.data?.docs ?? [];
+              debugPrint('Total docs fetched: ${docs.length}');
               
               if (docs.isEmpty) {
                 return _buildEmptyState(context);
@@ -296,17 +454,23 @@ class _TasksScreenState extends State<TasksScreen> {
 
               final allTasks = docs.map((doc) => Task.fromFirestore(doc)).toList();
 
-              List<Task> filteredTasks = selectedFilter == 'All'
-                  ? allTasks
-                  : allTasks.where((task) => task.status == selectedFilter).toList();
-
+              // Calculate stats from all tasks
               int completedCount = allTasks.where((t) => t.status == 'Completed').length;
               int inProgressCount = allTasks.where((t) => t.status == 'In Progress').length;
               int pendingCount = allTasks.where((t) => t.status == 'Pending').length;
 
+              // Filter for active (non-completed) tasks for the main list
+              final activeTasks = allTasks.where((task) {
+                return task.status != 'Completed' && task.progress < 1.0;
+              }).toList();
+
+              List<Task> filteredTasks = selectedFilter == 'All'
+                  ? activeTasks
+                  : activeTasks.where((task) => task.status == selectedFilter).toList();
+
               return Column(
                 children: [
-                  _buildHeader(context, allTasks.length),
+                  _buildHeader(context, activeTasks.length),
                   Expanded(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.all(24),
@@ -317,15 +481,30 @@ class _TasksScreenState extends State<TasksScreen> {
                           const SizedBox(height: 24),
                           _buildStats(completedCount, inProgressCount, pendingCount),
                           const SizedBox(height: 24),
-                          const Text(
-                            'Upcoming Tasks',
-                            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Upcoming Tasks',
+                                style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500),
+                              ),
+                              TextButton(
+                                onPressed: _showTaskHistory,
+                                child: const Text(
+                                  'Task History',
+                                  style: TextStyle(color: Color(0xFFC27AFF), fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 16),
                           if (filteredTasks.isEmpty)
-                             const Center(child: Padding(
-                               padding: EdgeInsets.symmetric(vertical: 40),
-                               child: Text('No items here yet!', style: TextStyle(color: Color(0xFFDAB2FF))),
+                             Center(child: Padding(
+                               padding: const EdgeInsets.symmetric(vertical: 40),
+                               child: Text(
+                                 selectedFilter == 'All' ? 'No active tasks here yet!' : 'No tasks match this filter!',
+                                 style: const TextStyle(color: Color(0xFFDAB2FF)),
+                               ),
                              ))
                           else
                             ListView.builder(
@@ -358,11 +537,20 @@ class _TasksScreenState extends State<TasksScreen> {
     return Column(
       children: [
         _buildHeader(context, 0),
-        const Expanded(
+        Expanded(
           child: Center(
-            child: Text(
-              'No items here yet!',
-              style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 18),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'No tasks here yet!',
+                  style: TextStyle(color: Color(0xFFDAB2FF), fontSize: 18),
+                ),
+                TextButton(
+                  onPressed: _showTaskHistory,
+                  child: const Text('View Task History', style: TextStyle(color: Color(0xFFC27AFF))),
+                ),
+              ],
             ),
           ),
         ),
@@ -392,7 +580,7 @@ class _TasksScreenState extends State<TasksScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('My Tasks', style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.bold)),
-                  Text('$taskCount tasks available', style: const TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
+                  Text('$taskCount active tasks', style: const TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
                 ],
               ),
             ],
@@ -417,7 +605,7 @@ class _TasksScreenState extends State<TasksScreen> {
                   children: [
                     Icon(Icons.add, color: Colors.white),
                     SizedBox(width: 8),
-                    Text('Create New Task', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                    const Text('Create New Task', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
                   ],
                 ),
               ),
@@ -429,7 +617,7 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   Widget _buildFilters() {
-    final filters = ['All', 'In Progress', 'Pending', 'Completed'];
+    final filters = ['All', 'In Progress', 'Pending'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -658,7 +846,7 @@ class _TasksScreenState extends State<TasksScreen> {
 
 class ProgressProofSheet extends StatefulWidget {
   final String taskTitle;
-  final Function(String text, bool hasImage, ImageSource? source, bool isAIValidated) onConfirm;
+  final Function(String text, bool hasImage, ImageSource? source, bool isAI) onConfirm;
 
   const ProgressProofSheet({
     super.key,
@@ -674,46 +862,74 @@ class _ProgressProofSheetState extends State<ProgressProofSheet> {
   final TextEditingController _controller = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
-  ImageSource? _selectedSource;
   String _progressText = '';
 
-  // TODO: Phase 2 - Implement ML Kit or Gemini API for secure detailed image content verification here
-  // (e.g., check if photo contains notes, specific objects, etc.). For now, we'll implement a basic check structure.
   bool _isImageContentValid(XFile? image) {
     if (image == null) return false;
-    // THIS LOCAL CHECK IS NOT SECURE.
-    // Basic local check: e.g. check if filename contains 'notes' (case-insensitive)
-    // or just return true for now as a structure for AI analysis.
-    String fileName = image.name.toLowerCase();
-    bool containsNotes = fileName.contains('notes') || fileName.contains('image'); 
-    return containsNotes || true; // Returning true to allow submission in current phase
+    return true; 
   }
 
   bool _isValidSubmission() {
     bool hasImage = _selectedImage != null && _isImageContentValid(_selectedImage);
-    
     final trimmedText = _progressText.trim().toLowerCase();
-    bool isLongEnough = trimmedText.length >= 20;
-    
+    bool isLongEnough = trimmedText.length >= 10;
     final words = widget.taskTitle.toLowerCase().split(' ');
-    // Filter out short filler words from the title for a better keyword check
     bool containsKeyword = words.any((word) => word.length > 2 && trimmedText.contains(word));
-
     return hasImage && isLongEnough && containsKeyword;
   }
 
-  Future<void> _pickOrCaptureImage(ImageSource source) async {
-    final XFile? image = await _picker.pickImage(source: source);
-    if (image != null) {
-      setState(() {
-        _selectedImage = image;
-        _selectedSource = source;
-      });
+  String _getValidationMessage() {
+    if (_selectedImage == null) {
+      return '📷 Please take a photo of your work.';
+    }
+    if (_progressText.trim().length < 10) {
+      return '✍️ Description is too short (${_progressText.trim().length}/10 characters).';
+    }
+    final words = widget.taskTitle.toLowerCase().split(' ');
+    bool containsKeyword = words.any((word) => word.length > 2 && _progressText.toLowerCase().contains(word));
+    if (!containsKeyword) {
+      return '🔑 Description must include a keyword from the task title.';
+    }
+    return '✅ Ready to submit!';
+  }
+
+  Future<void> _captureImage() async {
+    try {
+      // Clear stale memory before opening heavy camera process
+      setState(() { _selectedImage = null; });
+
+      // FORCE light image compression to prevent OOM crash
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 50,
+        maxWidth: 800,
+        maxHeight: 800,
+      );
+
+      if (!mounted) return;
+      if (image != null) {
+        setState(() {
+          _selectedImage = image;
+        });
+      }
+    } catch (e) {
+      debugPrint("Camera Error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Camera Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool isValid = _isValidSubmission();
+    final String validationMsg = _getValidationMessage();
+
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom + 16,
@@ -750,42 +966,24 @@ class _ProgressProofSheetState extends State<ProgressProofSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            const Text('Image Submission (Mandatory)', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
+            const Text('Image Submission (Camera Only)', style: TextStyle(color: Color(0xFFC27AFF), fontSize: 14)),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _pickOrCaptureImage(ImageSource.gallery),
-                    icon: const Icon(Icons.photo_library, size: 18),
-                    label: const Text('Gallery', style: TextStyle(fontSize: 12)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _selectedSource == ImageSource.gallery ? const Color(0xFF9810FA) : const Color(0xFF1A0F2E),
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Color(0xFFC27AFF)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
+            if (_selectedImage == null)
+              ElevatedButton.icon(
+                onPressed: _captureImage,
+                icon: const Icon(Icons.camera_alt, size: 20),
+                label: const Text('Open Camera', style: TextStyle(fontSize: 14)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1A0F2E),
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 50),
+                  side: const BorderSide(color: Color(0xFFC27AFF)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _pickOrCaptureImage(ImageSource.camera),
-                    icon: const Icon(Icons.camera_alt, size: 18),
-                    label: const Text('Camera', style: TextStyle(fontSize: 12)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _selectedSource == ImageSource.camera ? const Color(0xFF9810FA) : const Color(0xFF1A0F2E),
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Color(0xFFC27AFF)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
             if (_selectedImage != null)
               Padding(
-                padding: const EdgeInsets.only(top: 16.0),
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
                 child: Row(
                   children: [
                     ClipRRect(
@@ -798,26 +996,21 @@ class _ProgressProofSheetState extends State<ProgressProofSheet> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Text('Image Attached!', style: TextStyle(color: Color(0xFF00C950), fontSize: 14)),
+                    const Text('Photo Captured!', style: TextStyle(color: Color(0xFF00C950), fontSize: 14)),
                     const Spacer(),
-                    IconButton(onPressed: () => setState(() { _selectedImage = null; _selectedSource = null; }), icon: const Icon(Icons.close, color: Colors.red, size: 20)),
+                    IconButton(
+                      onPressed: () => setState(() { _selectedImage = null; }),
+                      icon: const Icon(Icons.close, color: Colors.red, size: 20),
+                    ),
                   ],
                 ),
               ),
             const SizedBox(height: 24),
-            if (!_isValidSubmission())
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: Text(
-                  'Debug: Image? ${_selectedImage != null} | Chars: ${_progressText.trim().length}/20 | Keyword? ${widget.taskTitle.toLowerCase().split(' ').any((word) => word.length > 2 && _progressText.toLowerCase().contains(word))}',
-                  style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-                ),
-              ),
             ElevatedButton(
-              onPressed: _isValidSubmission()
+              onPressed: isValid
                   ? () {
                       Navigator.pop(context);
-                      widget.onConfirm(_progressText, true, _selectedSource, false);
+                      widget.onConfirm(_progressText, true, ImageSource.camera, false);
                     }
                   : null,
               style: ElevatedButton.styleFrom(
@@ -829,10 +1022,14 @@ class _ProgressProofSheetState extends State<ProgressProofSheet> {
               child: const Text('Submit Progress', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
             ),
             const SizedBox(height: 12),
-            const Center(
+            Center(
               child: Text(
-                'Required: Upload a photo or write a detailed description to earn XP.',
-                style: TextStyle(color: Color(0xFF99A1AF), fontSize: 11),
+                validationMsg,
+                style: TextStyle(
+                  color: isValid ? const Color(0xFF00C950) : const Color(0xFF99A1AF),
+                  fontSize: 12,
+                  fontWeight: isValid ? FontWeight.bold : FontWeight.normal,
+                ),
                 textAlign: TextAlign.center,
               ),
             ),

@@ -240,10 +240,11 @@ class ProfileScreen extends StatelessWidget {
   }
 
   Widget _buildStatsGrid(Map<String, dynamic> userData) {
+    // Mapping Firestore fields to UI variables with default values
     final String tasksCompleted = (userData['tasksCompleted'] ?? 0).toString();
     final String levelsUnlocked = (userData['level'] ?? 1).toString();
-    final String xpEarned = (userData['xp'] ?? 0).toString();
-    final String streak = (userData['streak'] ?? 0).toString();
+    final String xpEarned = (userData['totalXp'] ?? 0).toString();
+    final String streak = (userData['currentStreak'] ?? 0).toString();
 
     return GridView.count(
       shrinkWrap: true,

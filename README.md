@@ -48,6 +48,11 @@ Follow these steps to run the project on your system:
 
 ---
 
+## 🎥 Demo Video
+[Watch Demo](https://youtu.be/X5SQI_kf5aY)
+
+---
+
 ## 📸 Screenshots
 
 ### Character Creation

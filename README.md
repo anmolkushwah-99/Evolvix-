@@ -69,3 +69,6 @@ Follow these steps to run the project on your system:
 
 ## 🏗 Architecture Diagram
 ![Architecture](docs/architecture.png)
+
+##🎥 Demo Video##
+[Watch Demo]((https://youtu.be/X5SQI_kf5aY))

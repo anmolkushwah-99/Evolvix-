@@ -33,6 +33,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
+      // For demo purposes, we can try to auto-login a demo user if needed
+      // but keeping it simple: just go to login.
       Navigator.pushReplacementNamed(context, '/login');
     } else {
       try {
@@ -41,8 +43,10 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         if (!mounted) return;
 
         if (!userDoc.exists) {
-          // FIRST TIME LOGIN: Route to Character Creation!
-          Navigator.pushReplacementNamed(context, '/character_creation');
+          // Check if this is a known demo UID or just create demo data for first time
+          await _createDemoData(user.uid);
+          if (!mounted) return;
+          Navigator.pushReplacementNamed(context, '/dashboard');
         } else {
           // RETURNING USER: Route to the Home Screen
           Navigator.pushReplacementNamed(context, '/dashboard');
@@ -52,6 +56,78 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         Navigator.pushReplacementNamed(context, '/login');
       }
     }
+  }
+
+  Future<void> _createDemoData(String uid) async {
+    final batch = FirebaseFirestore.instance.batch();
+    
+    // 1. Create User Profile
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    batch.set(userRef, {
+      'username': 'Alex Rivers',
+      'name': 'Alex Rivers',
+      'email': FirebaseAuth.instance.currentUser?.email ?? 'alex.rivers@evolvix.io',
+      'level': 42,
+      'xp': 4550,
+      'coins': 1200,
+      'joinedDate': 'March 2024',
+      'streak': 24,
+      'tasksCompleted': 1284,
+      'avatarUrl': '', // Placeholder
+      'characterClass': 'Warrior',
+    });
+
+    // 2. Add Sample Tasks
+    final tasksRef = userRef.collection('tasks');
+    
+    // Completed Tasks
+    batch.set(tasksRef.doc('task_1'), {
+      'title': 'Math Calculus Assignment',
+      'category': 'Study',
+      'xpReward': 150,
+      'progress': 1.0,
+      'status': 'completed',
+      'completedAt': DateTime.now().subtract(const Duration(days: 1)),
+    });
+    
+    batch.set(tasksRef.doc('task_2'), {
+      'title': 'Morning 5km Run',
+      'category': 'Fitness',
+      'xpReward': 200,
+      'progress': 1.0,
+      'status': 'completed',
+      'completedAt': DateTime.now().subtract(const Duration(hours: 5)),
+    });
+
+    // Active Tasks
+    batch.set(tasksRef.doc('task_3'), {
+      'title': 'Finish Flutter Project',
+      'category': 'Study',
+      'xpReward': 500,
+      'progress': 0.65,
+      'status': 'active',
+      'createdAt': DateTime.now(),
+    });
+    
+    batch.set(tasksRef.doc('task_4'), {
+      'title': 'Read 20 pages of "Atomic Habits"',
+      'category': 'Habit',
+      'xpReward': 50,
+      'progress': 0.3,
+      'status': 'active',
+      'createdAt': DateTime.now(),
+    });
+
+    // 3. Add Rewards/Badges (if there's a subcollection for it)
+    final rewardsRef = userRef.collection('rewards');
+    batch.set(rewardsRef.doc('badge_1'), {
+      'title': 'Early Adopter',
+      'description': 'Joined Beta Season 1',
+      'unlockedAt': DateTime.now().subtract(const Duration(days: 30)),
+      'icon': 'verified_user',
+    });
+
+    await batch.commit();
   }
 
   @override

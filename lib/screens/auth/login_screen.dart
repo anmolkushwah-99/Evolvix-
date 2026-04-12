@@ -103,10 +103,49 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     setState(() => _isLoading = true);
 
+    String email = _emailController.text.trim();
+    String password = _passwordController.text.trim();
+
+    // DEMO LOGIN LOGIC
+    if (email == 'demo@evolvix.com' && password == '123456') {
+      try {
+        // 1. Try to sign in first
+        UserCredential? userCredential;
+        try {
+          userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+        } on FirebaseAuthException catch (e) {
+          if (e.code == 'user-not-found') {
+            // 2. If user doesn't exist, create the demo account
+            userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+              email: email,
+              password: password,
+            );
+            
+            // 3. Initialize Demo Data
+            if (userCredential.user != null) {
+              await _initializeDemoData(userCredential.user!.uid);
+            }
+          } else {
+            rethrow;
+          }
+        }
+
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/dashboard');
+        }
+        return;
+      } catch (e) {
+        // Fallback to normal error handling if something goes wrong
+      }
+    }
+
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
+        email: email,
+        password: password,
       );
       
       if (mounted) {
@@ -140,6 +179,54 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Future<void> _initializeDemoData(String uid) async {
+    final batch = FirebaseFirestore.instance.batch();
+    final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+    
+    // User Profile
+    batch.set(userRef, {
+      'username': 'DemoUser',
+      'name': 'Demo User',
+      'email': 'demo@evolvix.com',
+      'level': 3,
+      'xp': 120,
+      'coins': 500,
+      'joinedDate': 'January 2024',
+      'characterClass': 'Explorer',
+    });
+
+    // Sample Tasks
+    final tasksRef = userRef.collection('tasks');
+    
+    // Completed
+    batch.set(tasksRef.doc('demo_task_1'), {
+      'title': 'Explore Evolvix App',
+      'category': 'Habit',
+      'xpReward': 50,
+      'progress': 1.0,
+      'status': 'completed',
+    });
+
+    // Pending
+    batch.set(tasksRef.doc('demo_task_2'), {
+      'title': 'Complete your first study session',
+      'category': 'Study',
+      'xpReward': 100,
+      'progress': 0.0,
+      'status': 'active',
+    });
+
+    // Rewards
+    final rewardsRef = userRef.collection('rewards');
+    batch.set(rewardsRef.doc('demo_reward_1'), {
+      'title': 'First Steps',
+      'description': 'Created your account!',
+      'icon': 'stars',
+    });
+
+    await batch.commit();
   }
 
   @override
